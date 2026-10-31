@@ -95,9 +95,10 @@ These are phrases for the agent, not editor commands. The number can also be a t
 
 ## Review, approve once and download
 When the analysis is complete the agent sets the draft to Ready for Review and sends you to the
-form: **Continue** tab, select the PBI, **Review selected PBI**. The review shows six cards: the
+form: **Continue** tab, select the PBI, **Review selected PBI**. The review shows seven cards: the
 PBI, requirements and acceptance criteria, repository analysis, implementation approach (CDMS,
-DAB and shared UI), business decisions, and technical readiness with any blockers. Then:
+DAB and shared UI), business decisions, untrusted content and sensitive data, and technical
+readiness with any blockers. Then:
 
 - **Approve & Generate** (needs your name): records your final approval, bound to a fingerprint
   of exactly what you reviewed, sets the PBI to Development-Ready and generates the final PBIs

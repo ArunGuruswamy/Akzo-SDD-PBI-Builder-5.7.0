@@ -1,4 +1,4 @@
-AKZO SDD PBI BUILDER 5.0.0
+AKZO SDD PBI BUILDER 5.1.0
 Evidence-based PBI refinement | 30 October 2026
 
 WHAT IT DOES
@@ -116,13 +116,17 @@ requirements, repository analysis, implementation approach, decisions and techni
 readiness. Approve & Generate records your approval, generates the final PBIs and
 verifies every file; Request Changes and Save Draft approve nothing. The PBI
 Generated Successfully window offers DOCX, MD and JSON per PBI, a preview, and one
-ZIP with everything. PO/BA, security, architecture or technical sign-off your
+ZIP with everything. Values that look like credentials are replaced with
+[REDACTED: <kind>] before anything is saved, and a credential left in a PBI's
+documents blocks approval. Text in the request or attachments that tries to
+instruct the agent is flagged as untrusted and shown in the review, never followed.
+PO/BA, security, architecture or technical sign-off your
 organization requires remains a separate step outside this tool. See
 docs/USER-GUIDE.md.
 
 UPGRADING FROM 4.x
 Install as above (Install.cmd, the form, or Upgrade all) and allow reviewed updates.
-The setup window and the form show "update to 5.0.0 available". Files you never
+The setup window and the form show "update to 5.1.0 available". Files you never
 edited are updated with backups. PBIs, decisions and approvals stay valid; from
 5.0 only the final user approval is required, so a 4.x PBI that was waiting only
 for PO/BA or technical approval can be approved in Review & approve. Add the shared

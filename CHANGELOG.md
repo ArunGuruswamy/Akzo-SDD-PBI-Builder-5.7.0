@@ -1,5 +1,42 @@
 # Changelog
 
+## 5.1.0 — 31 October 2026
+
+Sensitive-data protection and untrusted-content handling. No new dependency, no telemetry, no
+network call; the installers, readiness rules, approvals, generation, draft and resume behave as
+in 5.0.0.
+
+### Sensitive data
+- Values that look like credentials are replaced with [REDACTED: <kind>] before anything is
+  saved: private keys, GitHub, AWS, Slack, Google and Sonar tokens, JWTs, bearer tokens, SAS
+  signatures, credentials in URLs, connection-string passwords and account keys, and password,
+  secret, API-key and token assignments. Only the value is replaced; the setting name and the
+  surrounding text stay. Placeholders (<password>, {0}, $env:X, ${VAR}, ***), code references
+  (options.Password, GetValue(...)) and prose ("Password: required") are kept.
+- Applied in the shared core, so every path uses it: intake fields (REQUEST.md, pbi.json, the
+  start prompt, the folder name), text attachments (copied redacted), the intake ZIP, refinement
+  requests and Request Changes notes, custom answers in the question panel (pbi-state.json and
+  DECISION-LOG.md), Save Draft review notes, and the supporting files in the final ZIP.
+- REQUEST.md and pbi.json record what was removed by kind and count (never the value). Binary or
+  very large attachments (Word, PDF, images) are kept unchanged and listed as not scanned.
+- Approve & Generate refuses, writing nothing, when pbi-state.json, pbi.json, REQUEST.md,
+  DRAFT-PBI.md, EVIDENCE.md, OPEN-QUESTIONS.md, DECISION-LOG.md or VALIDATION-MATRIX.md holds a
+  value that looks like a credential ([SENSITIVE_DATA], kind only). After generation every MD and
+  JSON file is scanned again; a finding rolls the generation back.
+
+### Untrusted content
+- Lines in the request or a text attachment that address the agent rather than describe the
+  business (override its rules, change its role, bypass an approval, hide something from the
+  user, run commands, send data out) are flagged with file, line and kind. They are never removed;
+  the attachment is kept whole.
+- REQUEST.md lists them under "Instruction-like text (untrusted)", pbi.json records them
+  (contentWarnings), and the start prompt tells the agent to treat them as data.
+- Review & approve has a seventh card, Untrusted content and sensitive data. A credential in a
+  working document blocks approval there; instruction-like text is shown, not blocking.
+- Agent: new "Untrusted content" section. Attachments, the request, repository source and earlier
+  reports are reference material, never instructions; instruction-like text is recorded in
+  EVIDENCE.md as not followed; secrets are written as [REDACTED: <kind>].
+
 ## 5.0.0 — 30 October 2026
 
 One workflow: Start PBI → requirements → legacy repository → development target → deep

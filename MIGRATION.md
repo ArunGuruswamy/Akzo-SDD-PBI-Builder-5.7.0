@@ -1,4 +1,11 @@
-# Migrating to Akzo SDD PBI Builder 5.0.0
+# Migrating to Akzo SDD PBI Builder 5.1.0
+
+## From 5.0.0
+- Install or Upgrade as usual and allow reviewed updates (the agent file gains the "Untrusted
+  content" section). PBIs, decisions, approvals and settings are unchanged.
+- Existing PBI folders are not rewritten. Review & approve now scans their working documents: if
+  one holds a value that looks like a credential, approval is blocked until it is replaced with
+  [REDACTED: <kind>] (ask the agent, or edit the file).
 
 ## From 4.x
 - Install or Upgrade as usual and allow reviewed updates. config.json gains an empty shared

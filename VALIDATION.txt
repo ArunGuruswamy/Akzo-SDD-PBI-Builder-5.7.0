@@ -1,5 +1,5 @@
-Akzo SDD PBI Builder 5.0.0
-Validation date: 30 October 2026 (Windows 11, Node 20.20.2, Python 3.13.7,
+Akzo SDD PBI Builder 5.1.0
+Validation date: 31 October 2026 (Windows 11, Node 20.20.2, Python 3.13.7,
 Windows PowerShell 5.1.22621.6133, CurrentUser execution policy RemoteSigned)
 
 BASELINE BEFORE CHANGES
@@ -34,7 +34,18 @@ REFERENCE REPOSITORIES REVIEWED (XRM workflow upgrade; nothing installed or copi
 PASSED
 - Syntax: core.js and ui.js. PowerShell parser for both .ps1 files: 0 errors.
   Installer files are pure ASCII.
-- test-core.cjs: 51 checks on real temporary files.
+- test-core.cjs: 55 checks on real temporary files.
+  - 5.1 sensitive data: 13 credential forms redacted (value removed, kind named,
+    redaction stable); 13 look-alikes kept (placeholders, code references, prose,
+    Integrated Security, text already redacted);
+  - 5.1 every persistence path: intake fields, text attachments (redacted), binary
+    attachments (kept byte for byte, listed as not scanned), refinement notes,
+    custom answers; findings never contain the value;
+  - 5.1 Approve & Generate refuses a credential in pbi-state.json with nothing
+    written, then generates; every generated MD, JSON and DOCX scanned clean;
+  - 5.1 untrusted content: 8 instruction forms flagged, 7 business sentences not
+    flagged; source and line recorded; attachment kept whole; REQUEST.md, pbi.json
+    and the prompt; the review does not flag REQUEST.md's own quotations; agent text;
   - a 4.1 pbi.json (application, no repositories) keeps the 4.x path rules;
   - 5.0 development targets: repository roles for CDMS + UI, DAB + UI (CDMS always a
     read-only reference), UI Only (no backend work) and Both (one shared UI); legacy
@@ -162,7 +173,11 @@ PASSED
     repository with Validate and Add or remove, development target radios with
     repository roles, analysis mode, draft and resume, Review summary.
   - Existing PBI number: Resume, Review, Start New Version, Cancel.
-  - Review & approve: six cards, name required, Approve & Generate, DOCX/MD/JSON
+  - 5.1: a secret in the description and a text attachment is redacted in
+    REQUEST.md, pbi.json, the attachment, the prompt and the message; instruction-
+    like text is flagged and kept; a binary attachment is kept and listed.
+  - Review & approve: seven cards (a credential in pbi-state.json blocks approval,
+    shown by kind only), name required, Approve & Generate, DOCX/MD/JSON
     and ZIP downloads read back and verified, preview, a tampered file refused,
     Request Changes, Save Draft, a blocker disables approval.
   - Attachments copied into attachments/; Save draft and Cancel.
@@ -214,6 +229,13 @@ PASSED
 - release.cjs: ZIP extracted by PowerShell Expand-Archive; every SHA-256 matches.
 
 NOT VERIFIED HERE (need a team machine)
+- 5.1 secret detection is pattern-based: it can miss a credential in an unusual
+  form (a bare password with no setting name, an unknown token format) and is
+  not an approved secret scanner. Word, PDF and image attachments are not
+  scanned (listed as not scanned).
+- 5.1 instruction detection is pattern-based: reworded instructions can pass
+  unflagged. Whether the model ignores them is an instruction to the model; no
+  model was run. Repository source is not scanned by the form.
 - Scenario J: whether VS Code actually renders vscode/askQuestions for this
   custom agent in your Copilot version and policy. The fallback is numbered text.
 - Scenario K and chat-side A-N: the agent's chat behavior. Examples: prefilling a

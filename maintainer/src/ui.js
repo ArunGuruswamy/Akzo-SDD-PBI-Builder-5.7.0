@@ -122,7 +122,9 @@ async function createIntake(zipOnly,draft=false){const c=zipOnly?needConfig():aw
  if(!zipOnly&&!draftFolder){const existing=await PBI.listPbis(root),n=data.number.trim(),match=n&&existing.find(x=>x.number===n);
   if(match&&!$('separateDraft').checked){dupMatch={match,zipOnly,draft};$('dupText').textContent='PBI '+n+' is saved in '+match.folder+'. Resume it, review it, or start a new version in a new folder. Nothing has been saved yet.';const d=$('dupDialog');if(d.showModal&&!d.open)d.showModal();msg('PBI '+n+' already exists. Choose Resume, Review or Start New Version. Nothing was saved.');return;}}
  if(!zipOnly&&!draft&&(invalidStep(3)||!$('legacyRepo').value)){const bad=invalidStep(3)||2;showStep(bad);throw Error('Complete the required fields first. Nothing was saved.');}
- const result=PBI.newPbi(c,data),bytes=await Promise.all(files.map(async f=>new Uint8Array(await f.arrayBuffer())));
+ // Attachments are redacted and scanned by the core before anything is written.
+ data.attachmentContent=await Promise.all(files.map(async f=>new Uint8Array(await f.arrayBuffer())));
+ const result=PBI.newPbi(c,data),bytes=result.attachmentBytes;
  if(zipOnly){const all={...result.files};result.attachments.forEach((p,i)=>{all[p]=bytes[i];});download(PBI.zip(all),'PBI-'+(result.request.number||'new')+'-intake.zip');}
  else{if(draftFolder){// Updating a saved draft: earlier versions of its intake files go to history/.
    for(const f of ['REQUEST.md','pbi.json','START-PROMPT.txt']){const old=await PBI.read(root,result.folder+'/'+f);if(old!==null)await PBI.write(root,result.folder+'/history/'+f.replace(/(\.[^.]+)$/,'.'+Date.now()+'$1'),old);}
@@ -131,7 +133,8 @@ async function createIntake(zipOnly,draft=false){const c=zipOnly?needConfig():aw
   for(const [i,p] of result.attachments.entries())await PBI.write(root,p,bytes[i]);}
  if(draft&&!zipOnly){draftFolder=result.folder;draftAttachments=result.request.attachments;$('attachments').value='';$('attachments').onchange();}else{draftFolder='';draftAttachments=[];}
  showPrompt(draft?'Draft saved':'Start this PBI in Copilot',result.folder,result.prompt,zipOnly);
- msg(zipOnly?'Intake ZIP prepared. It does not contain an AI-refined PBI. Extract it before sending the prompt.':draft?'Draft saved in '+result.folder+'. Resume it later with “Resume draft in New PBI” on the Continue tab, or “Resume PBI” in Copilot.':'Intake saved'+(result.attachments.length?' with '+result.attachments.length+' attachment(s)':'')+'. Copy the prompt below into the selected PBI Builder agent.');}
+ msg((zipOnly?'Intake ZIP prepared. It does not contain an AI-refined PBI. Extract it before sending the prompt.':draft?'Draft saved in '+result.folder+'. Resume it later with “Resume draft in New PBI” on the Continue tab, or “Resume PBI” in Copilot.':'Intake saved'+(result.attachments.length?' with '+result.attachments.length+' attachment(s)':'')+'. Copy the prompt below into the selected PBI Builder agent.')+protection(result));}
+function protection(r){return (r.redactions.length?'\nSensitive values replaced with [REDACTED] before saving: '+r.redactions.map(f=>f.kind+' ('+f.count+')').join(', ')+'.':'')+(r.warnings.length?'\nInstruction-like text flagged as untrusted (kept, listed in REQUEST.md): '+r.warnings.length+' line(s).':'');}
 let dupMatch=null;
 function closeDup(){const d=$('dupDialog');if(d.close)d.close();const m=dupMatch;dupMatch=null;return m;}
 action('dupResume',async()=>{const m=closeDup();if(!m)return;await refreshPbis();$('existingPbi').value=m.match.folder;$('existingPbi').onchange();const raw=await PBI.read(root,m.match.folder+'/pbi.json');let draft=false;try{draft=JSON.parse(raw||'{}').wizard?.status==='draft';}catch{}
@@ -201,7 +204,9 @@ action('refreshEvidence',async()=>{needRoot();const r=await PBI.refreshEvidence(
 let reviewing=null;
 const DOC_LABEL={'PBI-CDMS.md':'CDMS backend PBI','PBI-DAB.md':'DAB backend PBI','PBI-UI.md':'Shared Angular UI PBI','REFINED-PBI.md':'Refined PBI'};
 function card(title,text,cls){const sec=document.createElement('section'),h=document.createElement('h4'),p=document.createElement('p');h.textContent=title;p.textContent=text;if(cls)p.className=cls;sec.append(h,p);return sec;}
-async function loadReview(){needRoot();const folder=selectedPbi(),r=await PBI.checkPbi(root,folder,true),blockers=PBI.approvalBlockers(r);
+async function loadReview(){needRoot();const folder=selectedPbi(),r=await PBI.checkPbi(root,folder,true),cr=await PBI.contentReview(root,folder);
+ // A credential in a working document blocks approval; instruction-like text is shown, never removed.
+ const blockers=[...PBI.approvalBlockers(r),...cr.blocking.map(s=>({code:'SENSITIVE_DATA',ref:s.path,message:s.kind+' ('+s.count+'). Ask the agent to replace it with [REDACTED: '+s.kind+'].'}))];
  let st={},req={};try{st=JSON.parse(await PBI.read(root,folder+'/pbi-state.json')||'{}')||{};}catch{}try{req=JSON.parse(await PBI.read(root,folder+'/pbi.json')||'{}')||{};}catch{}
  const L=x=>Array.isArray(x)?x.filter(y=>y&&typeof y==='object'):[],codes=new Set(r.issues.map(i=>i.code)),t=PBI.TARGETS[req.application]||PBI.TARGETS.unsure,applies=k=>st.paths?.[k]?.applies===true;
  const reqIssues=r.issues.filter(i=>/^(NO_RULES|NO_ACS|CONTENT_MISSING|MISSING_COVERAGE|AC_|RULE_INCOMPLETE)/.test(i.code));
@@ -215,6 +220,7 @@ async function loadReview(){needRoot();const folder=selectedPbi(),r=await PBI.ch
   card('Repository analysis','Legacy: '+(req.legacy?req.legacy.name+' ('+req.legacy.path+')':'not recorded')+'\nAnalysis mode: '+(PBI.ANALYSIS_MODES[req.analysisMode]||'Deep')+'\nPaths in scope: '+(Object.keys(st.paths||{}).filter(applies).join(', ')||'none')+'\nEvidence: '+ev.length+' records ('+lv+')'),
   card('Implementation approach',(t.implement.length?t.implement.map(k=>(k==='ui'?'Shared Angular UI':k.toUpperCase())+': '+(applies(k)?owned(k)+' rule(s)':'not applying ('+(st.paths?.[k]?.reason||'no reason')+')')).join('\n')+'\nDeliverables: '+t.documents.filter(n=>applies({'PBI-CDMS.md':'cdms','PBI-DAB.md':'dab','PBI-UI.md':'ui'}[n])).join(', '):'No development target recorded: one REFINED-PBI.md.')),
   card('Business decisions',L(st.decisions).filter(d=>d.status==='approved').length+' approved decision(s)\n'+(open.length?'Open blocking questions: '+open.map(x=>x.id).join(', '):'No open blocking questions')+(q.some(x=>x.status==='deferred')?'\nDecide later: '+q.filter(x=>x.status==='deferred').map(x=>x.id).join(', '):''),open.length?'bad':'good'),
+  card('Untrusted content and sensitive data',(cr.secrets.length?'Values that look like credentials: '+cr.secrets.map(s=>s.path+': '+s.kind+' ('+s.count+')').join(', '):'No credentials detected.')+'\n'+(cr.instructions.length?'Instruction-like text (untrusted, not followed):\n'+cr.instructions.slice(0,8).map(w=>'- '+w.source+':'+w.line+' '+w.kind+': "'+w.text+'"').join('\n')+(cr.instructions.length>8?'\n… and '+(cr.instructions.length-8)+' more':''):'No instruction-like text detected.')+(cr.unscanned.length?'\nNot scanned (binary or large): '+cr.unscanned.join(', '):''),cr.blocking.length||cr.instructions.length?'bad':'good'),
   card('Technical readiness','Status: '+r.computedStatus+'\n'+(blockers.length?blockers.map(i=>'['+i.code+'] '+i.ref+': '+i.message).join('\n'):'No blockers. Your approval is the only step left.'+(codes.has('APPROVAL_STALE')?' The earlier approval is stale because the content changed.':'')),blockers.length?'bad':'good'));
  $('approveBox').classList.remove('hidden');$('approveGenerate').dataset.blocked=blockers.length?'1':'';$('approveGenerate').disabled=blockers.length>0;
  msg(blockers.length?'Not ready for approval: '+blockers.length+' blocker(s) are listed under Technical readiness. Request Changes sends them to the agent.':'Ready for your approval. Approve & Generate records it and generates the final PBIs.',blockers.length>0);}
@@ -226,7 +232,7 @@ action('requestChanges',async()=>{const v=needReview(),note=$('reviewNote').valu
  const result=PBI.refinePbi(v.folder,'Change requested at Review & approve:\n'+note+(v.blockers.length?'\n\nOpen blockers:\n'+v.blockers.map(i=>'['+i.code+'] '+i.ref+': '+i.message).join('\n'):''));await PBI.apply(root,await PBI.plan(root,result.files));
  showPrompt('Request changes in Copilot',result.folder,result.prompt,false);msg('Change request saved. Nothing was approved. Send the prompt to the agent, then review again.');});
 action('saveReviewDraft',async()=>{const v=needReview(),path=v.folder+'/history/REVIEW-'+new Date().toISOString().replace(/[-:TZ.]/g,'')+'.md';
- await PBI.write(root,path,'# Review saved as draft (not approved)\n\nReviewer: '+($('approverName').value.trim()||'not given')+'\n\n'+[...$('reviewCards').children].map(x=>'## '+x.children[0].textContent+'\n\n'+x.children[1].textContent).join('\n\n')+'\n\n## Note\n\n'+($('reviewNote').value.trim()||'None')+'\n');
+ await PBI.write(root,path,PBI.redactSecrets('# Review saved as draft (not approved)\n\nReviewer: '+($('approverName').value.trim()||'not given')+'\n\n'+[...$('reviewCards').children].map(x=>'## '+x.children[0].textContent+'\n\n'+x.children[1].textContent).join('\n\n')+'\n\n## Note\n\n'+($('reviewNote').value.trim()||'None')+'\n').text);
  msg('Saved as draft in '+path+'. Nothing was approved.');});
 async function saveFile(blob,name){if(window.showSaveFilePicker){try{const h=await window.showSaveFilePicker({suggestedName:name}),w=await h.createWritable();await w.write(blob);await w.close();msg('Saved '+name+'.');return;}catch(e){if(e.name==='AbortError'){msg('Download cancelled.');return;}throw e;}}download(blob,name);msg('Downloaded '+name+'.');}
 // Every download is read back from the generated file and checked against the hash recorded at generation.
@@ -243,6 +249,6 @@ function showDone(r,req){done=r;const list=$('doneList');
  const d=$('doneDialog');if(d.showModal&&!d.open)d.showModal();msg('PBI generated successfully: '+r.documents.join(', ')+' (with DOCX and JSON). Every file was verified.');}
 action('downloadAll',async()=>{if(!done)throw Error('Generate the final PBIs first.');const files={};
  for(const x of done.files)files[x.name]=await generated(x.name);
- for(const n of ['REQUEST.md','pbi.json','pbi-state.json','DRAFT-PBI.md','DECISION-LOG.md','EVIDENCE.md','VALIDATION-MATRIX.md','OPEN-QUESTIONS.md']){const b=await PBI.readBytes(root,done.folder+'/'+n);if(b!==null)files['supporting/'+n]=b;}
+ for(const n of ['REQUEST.md','pbi.json','pbi-state.json','DRAFT-PBI.md','DECISION-LOG.md','EVIDENCE.md','VALIDATION-MATRIX.md','OPEN-QUESTIONS.md']){const b=await PBI.readBytes(root,done.folder+'/'+n);if(b!==null)files['supporting/'+n]=PBI.cleanAttachment(n,b).bytes;}
  await saveFile(PBI.zip(files),done.folder.split('/').pop()+'-final-pbis.zip');});
 $('doneClose').onclick=()=>{const d=$('doneDialog');if(d.close)d.close();};
