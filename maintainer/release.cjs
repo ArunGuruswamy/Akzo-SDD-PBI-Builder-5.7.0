@@ -4,7 +4,8 @@
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),cp=require('node:child_process'),crypto=require('node:crypto');
 const P=require('./src/core.js');
 const pkg=path.resolve(__dirname,'..'),zipPath=path.join(pkg,'releases',`Akzo-SDD-PBI-Builder-${P.VERSION}`,`Akzo-SDD-PBI-Builder-${P.VERSION}.zip`);
-const EXCLUDE=new Set(['maintainer/Akzo-SDD-PBI-Builder.html','maintainer/generated-test.zip','maintainer/generated-comparison.zip','SHA256SUMS.txt']);
+const EXCLUDE=new Set(['maintainer/Akzo-SDD-PBI-Builder.html','maintainer/generated-test.zip','maintainer/generated-comparison.zip','SHA256SUMS.txt',
+ 'docs/APPLICATION-PERFORMANCE-QUALITY-AUDIT-2026-11-01.md','docs/APPLICATION-PERFORMANCE-QUALITY-AUDIT-2026-11-01.docx','docs/MEASUREMENTS.md']);
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 async function list(dir,rel=''){let out=[];for(const e of await fs.readdir(path.join(dir,rel),{withFileTypes:true})){const r=rel?rel+'/'+e.name:e.name;if(e.name==='.git'||r==='releases')continue;if(e.isDirectory())out=out.concat(await list(dir,r));else if(!EXCLUDE.has(r))out.push(r);}return out.sort();}
 (async()=>{

@@ -1,7 +1,7 @@
-/* Akzo SDD PBI Builder 5.1.0. Offline; no dependencies or network calls. */
+/* Akzo SDD PBI Builder 5.2.1. Offline; no dependencies or network calls. */
 (function (global) {
 'use strict';
-const VERSION='5.1.0', BASE='playbook/pbi-builder', CONFIG=BASE+'/config.json', MANIFEST=BASE+'/installed-files.json';
+const VERSION='5.2.1', BASE='playbook/pbi-builder', CONFIG=BASE+'/config.json', MANIFEST=BASE+'/installed-files.json';
 const AGENT='.github/agents/akzo-sdd-pbi-builder.agent.md', AGENT_PREFIX='Akzo SDD PBI Builder - ';
 const KNOWLEDGE=BASE+'/knowledge/evidence-index.json';
 // A workspace Agent Skill: Visual Studio 18.5+ and VS Code discover .github/skills/<name>/SKILL.md themselves.
@@ -465,22 +465,13 @@ Ask only what materially changes requirements or implementation: a genuine
 business ambiguity, missing functional behavior, a conflict or a material
 product-owner choice. Contradictory acceptance criteria are a conflict: name
 both criteria and ask; never resolve them silently. After analysis, present all
-remaining questions together in one consolidated decision review (each
-question numbered, with its own choices), not one message per question.
-Present every question as the Business Decision Advisor describes: what happens
-today, what the requirement expects, what is missing, your recommendation and
-why, numbered choices (recommended option first, real alternatives, then Custom
-answer and Decide later as the last two numbers), a ready-to-use answer, and the
-implementation impact with verified evidence. Mark an option Recommended only
-when the request, approved behavior or evidence supports it; otherwise say why
-there is no recommendation.
-Use the interactive question tool (vscode/askQuestions) when it is available;
-otherwise print the numbered choices. Options are always numbers, never letters;
-read a reply against the numbers shown and ask which number was meant when it
-does not match. Also accept back (edit the previous answer), status (progress)
-and why (why it matters). Decide later records the question as deferred; a deferred question
-that affects required behavior still blocks Development-Ready and is offered
-again when the PBI is continued.
+remaining questions together in one consolidated decision review, not one
+message per question. Use the Business Decision Advisor as the single authority
+for question format, evidence-backed recommendations, A-D options, impacts,
+custom answers and defer. A deferred question that affects required behavior
+still blocks Development-Ready and is available when the PBI is continued.
+Use vscode/askQuestions when available; otherwise present the consolidated
+review in chat. Also accept back, status and why.
 Ask about scope (which application area, workflow, process or field value a
 rule covers) only when the source and requirement cannot establish it: first
 find every place the relevant field or behavior is used in each available
@@ -778,7 +769,7 @@ status proposed, approved, superseded. coverage defaults to positive and negativ
   the CDMS side, so CDMS may reuse a plugin that DAB bypasses. Identical rule text in two rules is
   RULE_DUPLICATE: keep one canonical rule with all its evidence.
 - A rule may carry "branches" (business-rule-branch-completeness.md): each with
-  id, condition, expected, cdms/dab coverage for the applications in scope,
+  id, condition, expected, cdms/dab/ui coverage for the applications in scope,
   evidence, acceptance (AC IDs of this rule) and risk when conflicting.
 - PBI-CDMS.md, PBI-DAB.md and PBI-UI.md (earlier names CDMS-/DAB-REFINED-PBI.md
   are still read) are final documents like REFINED-PBI.md: blocked before
@@ -859,8 +850,10 @@ approval's basis as the check printed it, copied unchanged>}. A recorded one is
 checked like the final approval; one not recorded does not block, and the
 user's approval never stands in for it.
 Any change, addition or removal in covered material makes the approval stale,
-even when no rev changed; the check names the changed IDs. Reformatting
-whitespace does not. When an approval is stale or replaced, append the old
+even when no rev changed; the check names the changed IDs. JSON layout and
+document line endings are cosmetic; local source files and attachments are
+checked byte for byte. Previously approved 5.2.0 snapshots that did not bind
+local evidence need renewed review. When an approval is stale or replaced, append the old
 record unchanged to approvalHistory with "scope", "status": "stale" and
 "staleReason" naming what changed, set the approval to {"status": "pending"},
 revalidate and ask for a new approval in the wizard. Never delete history or
@@ -913,13 +906,11 @@ business question. The user may know nothing about the templates, CDMS, DAB,
 plugins or workflows; keep that vocabulary out of the default flow.
 
 ## Controls
-- VS Code: ask each step and question with the interactive question tool
-  (vscode/askQuestions): one question per call, short label, options as
-  choices, free text for custom answers and long descriptions.
-- Where that tool is not available (for example Visual Studio): show the
-  question as text with numbered options. The last two numbers are always
-  "Custom answer" and "Decide later"; also accept back, save (save draft),
-  status, why and cancel. Never use letters for options.
+- VS Code: use the interactive question tool (vscode/askQuestions) when
+  available; otherwise present the consolidated decision review in chat.
+- The Business Decision Advisor defines the question format, recommendation,
+  A-D choices, business/technical impacts, custom answers and decide-later
+  behavior. Also accept back, save (save draft), status, why and cancel.
 - The offline PBI Builder form offers the same intake (New PBI tab, with a real
   file picker) and an Answer questions panel; answers saved there are already
   in pbi-state.json and DECISION-LOG.md. Read them; never ask them again.
@@ -987,10 +978,17 @@ questions through the Business Decision Advisor.
 Every question you ask is recorded before you ask it:
 {"id": "Q-3", "requirements": ["BR-2"], "category": "duplicates", "blocking": true,
  "owner": "po-ba", "status": "unanswered", "question": "...", "why": "...",
- "example": "...", "options": [{"key": "1", "text": "..."}, {"key": "2", "text": "..."}],
- "recommended": "1", "recommendedReason": "...", "readyAnswer": "...", "allowCustom": true}
+ "example": "...", "options": [{"key": "A", "text": "..."}, {"key": "B", "text": "..."}],
+ "recommended": "A", "recommendationReason": "...", "recommendationEvidence": ["EV-1"], "businessImpact": "...",
+ "technicalImpact": "...", "readyAnswer": "...", "allowCustom": true}
 Statuses: unanswered, answered, approved, deferred, superseded, not-applicable.
-After an answer: "status": "answered", "answer": {"option": "1" or "custom",
+Use only genuine options A-D; the Business Decision Advisor defines the
+evidence-backed recommendation, impact, custom-answer and defer format. Cite
+the supporting evidence, acceptance criterion or approved decision IDs in
+"recommendationEvidence". Omit "recommended" when evidence supports no option.
+The form shows a recommendation only with a reason and valid recorded references.
+After an answer:
+"status": "answered", "answer": {"option": "A" or "custom",
 "text": "..."}, "resolution", "answeredBy", "answeredAt", and "decisionRef" to a
 new approved decision whose evidence says who chose what, when and where. Write a
 backup of pbi-state.json to history/ before each change. Editing an answer marks
@@ -1550,11 +1548,12 @@ never covers the rule.
 
 ## Record branches in pbi-state.json
 Each rule gets "branches": [{"id": "BR-1.Y", "condition", "expected", "cdms",
-"dab", "evidence": [EV ids], "acceptance": [AC ids of this rule], "risk",
+"dab", "ui", "evidence": [EV ids], "acceptance": [AC ids of this rule], "risk",
 "approach", "decisionRef", "kind"}].
-- cdms and dab (for each application in scope): covered, partial, missing,
+- cdms, dab and ui (for each application in scope): covered, partial, missing,
   conflicting (needs risk), unverified or not-applicable.
-- covered needs code evidence for that branch; for an existing plugin,
+- covered needs code evidence for that branch in the applicable application;
+  UI evidence cannot prove CDMS or DAB coverage, or vice versa. For an existing plugin,
   workflow or custom activity also its activation. Legacy code never covers a
   DAB branch. Otherwise use unverified.
 - kind "finding" marks a technical finding; everything else is a requirement,
@@ -1714,7 +1713,7 @@ developer handoff carries it.
 
 const SKILL_ADVISOR=`---
 name: business-decision-advisor
-description: "Business Decision Advisor for the Akzo SDD PBI Builder. Use whenever a PBI needs a genuine business decision from the PO/BA: explains today's behavior, the requirement and the gap in business language, recommends one option with reasons, offers numbered choices with a ready-to-use answer, and records only approved answers."
+description: "Business Decision Advisor for the Akzo SDD PBI Builder. Use for genuine business decisions: explains verified behavior, requirement gaps, evidence-backed recommendations and impacts; presents options, custom answers and defer; records only approved answers."
 ---
 
 # Business Decision Advisor
@@ -1747,30 +1746,38 @@ a technical fact that source can establish; investigate that instead.
   requirement establishes.
 
 ## Format
-Numbers only, never letters. Write it for a business user, not only a developer.
+Show every independent unresolved decision together after investigation; never
+repeat a question already answered. Revisit deferred questions only when the
+user resumes or explicitly asks to decide later. Use options A, B, C and D when
+there are up to four genuine alternatives. Do not invent options to fill the
+letters. Write it for a business user, not only a developer.
 
 **Q-n (BR-x): the business question in one sentence**
 What happens today: verified behavior in business words, or "not found within"
 the searched coverage.
 What the requirement expects: the requirement text or criterion it rests on.
 What is missing: the gap.
-My recommendation: Option 1.
-Why I recommend it: one to three reasons tied to criteria, decisions and evidence.
+Recommendation: Option A only when verified evidence supports it; otherwise
+write **NO RECOMMENDATION** and explain what is missing.
+Why: one to three reasons tied to criteria, approved decisions and evidence.
+Business impact: material user, process, exception and operational effects.
+Technical impact: affected applications, components, data and integrations.
 Choose your answer:
-1. The recommended option (recommended)
-2. An alternative option (add further real alternatives here)
-3. Custom answer
-4. Decide later
-Ready-to-use answer: "the exact sentence the PO/BA can approve for option 1".
-Implementation impact: affected layers and components, per option when they differ.
+A. The first genuine alternative [mark RECOMMENDED only when evidence supports it]
+B. A distinct alternative, when applicable
+C. A distinct alternative, when applicable
+D. A distinct alternative, when applicable
+Custom answer: enter another decision in your own words.
+Decide later: keep this question unresolved; do not treat it as approval.
+Ready-to-use answer: the exact sentence the PO/BA can approve.
 Evidence: file and lines, each marked found and verified, found but not yet
 reviewed, not found within the documented coverage, or inaccessible.
 
-Custom answer and Decide later are always the last two numbers. In VS Code use
-the interactive question tool (vscode/askQuestions) with the same numbered
-choices when it is available; otherwise print them. Accept a number, a custom
-text, back, status and why. A reply that does not match the numbers shown (for
-example a letter) is ambiguous: ask which number was meant.
+Custom answer and Decide later are separate controls, not business options. In
+VS Code use the interactive question tool (vscode/askQuestions) when available,
+preserving option labels, impacts and the recommendation; otherwise print them.
+Accept A-D, custom text, Decide later, back, status and why. Clarify replies
+that do not match an available choice; never infer a decision from silence.
 
 ## After the answer
 - A clear number or custom answer approves that one decision: record the
@@ -1798,8 +1805,8 @@ Every new PBI: use the form's New PBI tab, or select the agent and type "Start
 PBI". It collects the number, title, description, acceptance criteria and
 attachments together, then the legacy repository and the development target
 (CDMS + UI, DAB + UI, UI Only or Both), investigates the source on its own and
-asks only genuine business decisions, together in one decision review, each
-with a recommendation and numbered choices. When the analysis is done, open the
+asks only genuine business decisions together in one decision review, with
+evidence-backed recommendations and impacts. When the analysis is done, open the
 form's Review & approve: one approval generates the final PBIs (Markdown, DOCX
 and JSON) and offers them for download. To resume: "Continue PBI <number, title or folder>". To request changes:
 "Refine PBI <number, title or folder>: <what changed>". A new PBI gets a new
@@ -2155,7 +2162,7 @@ Save this run's PBI documents only in ${folder}/.
 This is an isolated pilot. Do not read other trial output folders, copy their
 answers, or reuse another trial's decisions. The intake and registered source
 files are the evidence for this run; obey mandatory project instructions.
-Ask one unresolved business question at a time. Do not assume approval.
+Ask only material unresolved business questions. Do not assume approval.
 Do not change application code, publish a work item, or modify agent settings.`;
   files[folder+'/REQUEST.md']=input.files[input.folder+'/REQUEST.md'];
   files[folder+'/pbi.json']=JSON.stringify({...input.request,kind:'comparison',trialId:id,profile:label},null,2)+'\n';
@@ -2323,7 +2330,7 @@ function newPbi(c,data){
 function refinePbi(folder,changes){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
  changes=redactSecrets(String(changes??'')).text.trim();if(!changes)throw Error('Describe what changed, or enter “Continue from the next unresolved question”.');
  const brief=folder+'/refinements/'+stamp()+'-'+uid()+'.md';
- const prompt=`Refine the existing PBI in ${folder}/.\nRead its REQUEST.md, pbi-state.json, DRAFT-PBI.md, REFINED-PBI.md, VALIDATION-MATRIX.md, OPEN-QUESTIONS.md, DECISION-LOG.md and EVIDENCE.md where present.\nRead the new refinement brief ${brief}.\nPreserve approved decisions and save prior draft versions under this PBI's history/ folder before changing them. A change to an approved item needs renewed approval.\nSummarize the current state and ask the next unresolved business question. Do not create another PBI or publish a work item.`;
+ const prompt=`Refine the existing PBI in ${folder}/.\nRead its REQUEST.md, pbi-state.json, DRAFT-PBI.md, REFINED-PBI.md, VALIDATION-MATRIX.md, OPEN-QUESTIONS.md, DECISION-LOG.md and EVIDENCE.md where present.\nRead the new refinement brief ${brief}.\nPreserve approved decisions and save prior draft versions under this PBI's history/ folder before changing them. A change to an approved item needs renewed approval.\nSummarize the current state and present independent unresolved business questions together without repeating answered decisions. Do not create another PBI or publish a work item.`;
  return {folder,prompt,files:{[brief]:'# Refinement request\n\nRequested at: '+new Date().toISOString()+'\n\n'+changes+'\n',[brief.replace(/\.md$/,'.prompt.txt')]:prompt+'\n'}};
 }
 
@@ -2361,13 +2368,20 @@ function skipQuestion(state,id){
 async function updateQuestions(root,folder,change){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
  const p=folder+'/pbi-state.json',raw=await read(root,p);if(raw===null)throw Error('This PBI has no pbi-state.json yet. Ask the agent to start the analysis first.');
  let state;try{state=JSON.parse(raw);}catch{throw Error('pbi-state.json is not valid JSON. Ask the agent to repair it before answering.');}
- const {state:next,decision}=change(state),st=stamp()+'-'+uid(),log=await read(root,folder+'/DECISION-LOG.md');
+ const {state:next,decision}=change(state),st=stamp()+'-'+uid(),log=decision?await read(root,folder+'/DECISION-LOG.md'):null;
+ const nextState=JSON.stringify(next,null,2)+'\n',pLog=folder+'/DECISION-LOG.md';
+ let nextLog=log;
+ if(decision){const q=questionsOf(next).find(x=>x.decisionRef===decision.id),base=log??'# Decision log\n\n',end=/[.!?]$/.test(decision.decision)?' ':'. ';
+  nextLog=base+(base.endsWith('\n')?'':'\n')+'- '+decision.id+' (approved'+(decision.supersedes?', supersedes '+decision.supersedes:'')+'): '+q.id+' '+String(q.question??'')+' → '+decision.decision+end+decision.evidence+'.\n';}
  await write(root,folder+'/history/pbi-state.'+st+'.json',raw);if(log!==null)await write(root,folder+'/history/DECISION-LOG.'+st+'.md',log);
- if(await read(root,p)!==raw)throw Error('pbi-state.json changed while you were answering. Reload the questions and try again.');
- await write(root,p,JSON.stringify(next,null,2)+'\n');
- if(decision){const q=questionsOf(next).find(x=>x.decisionRef===decision.id);
-  const base=log??'# Decision log\n\n',end=/[.!?]$/.test(decision.decision)?' ':'. ';
-  await write(root,folder+'/DECISION-LOG.md',base+(base.endsWith('\n')?'':'\n')+'- '+decision.id+' (approved'+(decision.supersedes?', supersedes '+decision.supersedes:'')+'): '+q.id+' '+String(q.question??'')+' → '+decision.decision+end+decision.evidence+'.\n');}
+ if(await read(root,p)!==raw||(decision&&await read(root,pLog)!==log))throw Error('PBI state or decision log changed while you were answering. Reload the questions and try again.');
+ const touched=[];
+ try{
+  touched.push({path:p,before:raw});await write(root,p,nextState);if(await read(root,p)!==nextState)throw Error('Saved pbi-state.json did not match.');
+  if(decision){touched.push({path:pLog,before:log});await write(root,pLog,nextLog);if(await read(root,pLog)!==nextLog)throw Error('Saved DECISION-LOG.md did not match.');}
+ }catch(e){const failures=[];for(const x of touched.reverse())try{if(x.before===null)await remove(root,x.path);else await write(root,x.path,x.before);}catch(rollback){failures.push(x.path+': '+rollback.message);}
+  throw Error('Decision update failed: '+e.message+'\n'+(failures.length?'Some files could not be restored:\n'+failures.join('\n'):'State and decision log were restored; history backups were retained.'));
+ }
  return {state:next,decision};
 }
 const recordAnswer=(root,folder,id,answer)=>updateQuestions(root,folder,s=>answerQuestion(s,id,answer));
@@ -2375,19 +2389,31 @@ const recordSkip=(root,folder,id)=>updateQuestions(root,folder,s=>skipQuestion(s
 
 // Developer handoff: business-rules.json and BRANCH-COVERAGE-MATRIX.md, derived only from pbi-state.json and the readiness report.
 const SCRIPTED=['plugin','workflow','custom-activity'];
+const UI_COMPONENTS=['javascript','web-resource','ribbon'];
+function historicalEvidence(e,pbi){return e.historical===true||(typeof e.source==='string'&&e.source.startsWith('playbook/pbis/')&&!e.source.startsWith('playbook/pbis/'+pbi+'/'))
+ ||(e.kind==='repo-file'&&typeof e.source==='string'&&READINESS.historicalPaths.some(p=>p.endsWith('/')?e.source.startsWith(p):e.source===p));}
+function branchProven(app,evidence,scripted,registration){
+ const matches=e=>{
+  if(app==='ui')return e.system==='ui'||(e.system===undefined&&UI_COMPONENTS.includes(e.component));
+  if(app==='cdms')return !['dab','ui','ocp','graphql'].includes(e.system)&&e.component!=='dab'&&!(e.system===undefined&&UI_COMPONENTS.includes(e.component));
+  return !['legacy-crm','cdms','ui','ocp','graphql'].includes(e.system)
+   &&(e.system==='dab'||!['cdms-api','plugin','workflow','custom-activity','xrm-service',...UI_COMPONENTS].includes(e.component));
+ };
+ return evidence.some(matches)&&!(app==='cdms'&&scripted&&registration!=='active');
+}
 function handoff(state,report){
  const o=x=>x&&typeof x==='object'&&!Array.isArray(x),a=x=>Array.isArray(x)?x:[],s=o(state)?state:{};
- const paths=o(s.paths)?s.paths:{},apps=['cdms','dab'].filter(k=>o(paths[k])&&paths[k].applies===true);
+ const paths=o(s.paths)?s.paths:{},apps=['cdms','dab','ui'].filter(k=>o(paths[k])&&paths[k].applies===true);
  const decisions=a(s.decisions).filter(o),approved=id=>decisions.some(d=>d.id===id&&d.status==='approved');
- const evidence=a(s.evidence).filter(o),ev=ids=>a(ids).map(id=>evidence.find(e=>e.id===id)).filter(Boolean).map(e=>({id:e.id,level:e.level,system:e.system??null,component:e.component??null,source:e.source,location:e.location,summary:e.summary,revision:e.revision??null}));
+ const evidence=a(s.evidence).filter(o),ev=ids=>[...new Set(a(ids))].map(id=>evidence.find(e=>e.id===id)).filter(Boolean).map(e=>({id:e.id,level:e.level,system:e.system??null,component:e.component??null,source:e.source,location:e.location,summary:e.summary,revision:e.revision??null}));
+ const excluded=a(s.evidenceScope?.exclude),invalid=new Set(a(report?.issues).filter(i=>['EVIDENCE_INCOMPLETE','EVIDENCE_STALE','EVIDENCE_SOURCE_MISSING','EVIDENCE_CHANGED','FOREIGN_PBI_EVIDENCE'].includes(i.code)).map(i=>i.ref));
  const acs=a(s.acceptanceCriteria).filter(o),gaps=[];
  const rules=a(s.rules).filter(o).map(r=>{
   const types=o(r.owner)?(r.owner.type==='multiple'?a(r.owner.types):[r.owner.type]):[],scripted=types.some(t=>SCRIPTED.includes(t));
   const ruleApproved=r.decision==='confirmed'&&approved(r.decisionRef);
-  // A plugin or workflow only covers a branch when its activation is shown; source alone is unverified.
-  const effective=(k,c)=>k==='cdms'&&c==='covered'&&scripted&&r.registration!=='active'?'unverified':c;
   const branches=a(r.branches).filter(o).map(b=>{
-   const coverage={},eff={};for(const k of apps){coverage[k]=b[k]??null;eff[k]=effective(k,b[k]??null);}
+   const proof=[...new Set(a(b.evidence))].map(id=>evidence.find(e=>e.id===id)).filter(e=>e&&e.level==='code'&&e.stale!==true&&!excluded.includes(e.system)&&!historicalEvidence(e,s.pbi)&&!invalid.has(e.id));
+   const coverage={},eff={};for(const k of apps){coverage[k]=b[k]??null;eff[k]=coverage[k]==='covered'&&!branchProven(k,proof,scripted,r.registration)?'unverified':coverage[k];}
    const kind=b.kind==='finding'?'technical-finding':(approved(b.decisionRef)||ruleApproved)?'approved-requirement':'proposed-requirement';
    for(const k of apps)if(!['covered','not-applicable'].includes(eff[k]))gaps.push({rule:r.id,branch:b.id,application:k,coverage:eff[k],expected:b.expected,risk:b.risk??null,kind});
    return {id:b.id,kind,condition:b.condition,expected:b.expected,decisionRef:b.decisionRef??null,coverage,effectiveCoverage:eff,risk:b.risk??null,approach:b.approach??null,evidence:ev(b.evidence),acceptanceCriteria:a(b.acceptance)};});
@@ -2427,7 +2453,7 @@ const READINESS={
  attributed:['plugin','workflow','custom-activity','xrm-service'],evidenceComponents:['cdms-api','xrm-service','plugin','workflow','custom-activity','javascript','web-resource','ribbon','dab','other'],
  // DAB implements every rule in its own code; there is no DAB plugin.
  dabLayers:['function','handler','validator','domain-service','graphql','response','other'],dabStatus:['implemented','partial','missing','not-applicable'],
- branchCoverage:['covered','partial','missing','conflicting','unverified','not-applicable'],branchApps:['cdms','dab'],
+ branchCoverage:['covered','partial','missing','conflicting','unverified','not-applicable'],branchApps:['cdms','dab','ui'],
  // Bundled reference reports describe past code; they never count as evidence levels.
  historicalPaths:[BASE+'/references/',BASE+'/REFERENCES-INDEX.md'],
  finalDocs:{cdmsRefined:['cdms','PBI-CDMS.md'],dabRefined:['dab','PBI-DAB.md'],uiRefined:['ui','PBI-UI.md']},registration:['active','disabled','missing','unknown'],
@@ -2438,12 +2464,12 @@ const READINESS={
  requiredPaths:['cdms','dab'],targetKeys:['cdms','dab','ui'],
  // Paths each development target must record (pbi.json application); requiredPaths applies without a target.
  targetPaths:Object.fromEntries(['cdms','dab','ui','both'].map(k=>[k,TARGETS[k].implement])),evidenceLevels:['code','registration','reach','runtime'],evidenceKinds:['repo-file','external'],
- evidenceSystems:['legacy-crm','cdms','dab','ocp','graphql','other'],questionResolved:['resolved','answered','approved','not-applicable'],
+ evidenceSystems:['legacy-crm','cdms','dab','ui','ocp','graphql','other'],questionResolved:['resolved','answered','approved','not-applicable'],
  lists:['rules','acceptanceCriteria','actors','evidence','decisions','dependencies','questions','assumptions'],
  // Material each approval is bound to; a change, addition or removal in it makes that approval stale.
  scopes:{poba:['rules','acceptanceCriteria','actors','decisions','questions','assumptions','paths','evidenceScope'],
   technical:['rules','acceptanceCriteria','actors','evidence','dependencies','questions','feasibility','paths','evidenceScope'],
-  user:['rules','acceptanceCriteria','actors','decisions','questions','assumptions','evidence','dependencies','feasibility','paths','evidenceScope']},
+  user:['rules','acceptanceCriteria','actors','decisions','questions','assumptions','evidence','dependencies','feasibility','paths','evidenceScope','reviewedContent']},
  messages:{
   STATE_MISSING:'pbi-state.json is missing or is not a JSON object.',STATE_SCHEMA:'Unsupported pbi-state.json schemaVersion; expected 2 (or 1 from 3.0.0).',
   STATE_OUTDATED:'pbi-state.json uses the 3.0.0 format (schemaVersion 1). Ask the agent to migrate it to schemaVersion 2; its approvals move to approvalHistory and must be renewed.',
@@ -2457,7 +2483,7 @@ const READINESS={
   DAB_OWNER_INVALID:'DAB ownership needs a status (implemented, partial, missing, not-applicable with a reason) and, unless not applicable, a known layer.',
   BRANCH_INCOMPLETE:'A branch needs a unique id, condition, expected behavior, coverage for each application in scope, and acceptance criteria of its rule; a conflicting branch also needs its risk.',
   BRANCH_NOT_COVERED:'Reuse claimed, but a branch of the rule is not covered by the existing implementation (for example the No path).',
-  BRANCH_COVERAGE_UNPROVEN:'A branch is marked covered without code evidence for it, with legacy evidence for DAB, or with an existing plugin/workflow whose activation is not shown.',
+  BRANCH_COVERAGE_UNPROVEN:'A branch is marked covered without code evidence for its application, with legacy evidence for DAB, or with an existing plugin/workflow whose activation is not shown.',
   DAB_BRANCH_GAP:'DAB is marked implemented, but a branch is not covered in DAB.',
   RULE_DUPLICATE:'The same rule text is recorded twice; keep one canonical rule and cite every source as evidence.',
   DOC_OUT_OF_SCOPE:'An application-specific PBI exists for an application this PBI does not apply to.',
@@ -2498,8 +2524,9 @@ const READINESS={
   FINAL_WITHOUT_APPROVAL:'REFINED-PBI.md exists before the PBI is Development-Ready.',STATUS_OVERCLAIMED:'Claimed status is higher than the computed status.'}};
 const norm=s=>s.replace(/[ \t\r\n]+/g,' ').replace(/^ | $/g,'');
 // Canonical JSON for fingerprints: sorted keys, whitespace runs in text collapsed (reformatting is not a change).
-// shortcut: non-integer numbers are formatted by each runtime and may differ in exotic cases; state values are integers and text.
-const canon=x=>typeof x==='string'?JSON.stringify(norm(x)):typeof x==='number'||typeof x==='boolean'?String(x):x===null||typeof x!=='object'?'null':Array.isArray(x)?'['+x.map(canon).join(',')+']':'{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+canon(x[k])).join(',')+'}';
+// Preserve legacy review fingerprints; metadata snapshots use binary numbers for cross-runtime parity.
+const binaryNumber=x=>{const bytes=new Uint8Array(8);new DataView(bytes.buffer).setFloat64(0,x===0?0:x);return '#'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');};
+const canon=(x,binaryNumbers=false)=>typeof x==='string'?JSON.stringify(norm(x)):typeof x==='number'?(binaryNumbers?binaryNumber(x):String(x)):typeof x==='boolean'?String(x):x===null||typeof x!=='object'?'null':Array.isArray(x)?'['+x.map(v=>canon(v,binaryNumbers)).join(',')+']':'{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+canon(x[k],binaryNumbers)).join(',')+'}';
 const meaningful=t=>typeof t==='string'&&norm(t).length>=12&&!/(^|[^A-Za-z0-9])(TBD|TODO|TBC)([^A-Za-z0-9]|$)/i.test(t);
 const docNorm=s=>norm(s.replace(/[*`]/g,''));
 const isSafe=p=>{try{safePath(p);return true;}catch{return false;}};
@@ -2528,7 +2555,7 @@ async function readiness(state,docs,pbi){
   // Files from another PBI's folder are never evidence for this one.
   const foreign=x=>typeof x.source==='string'&&x.source.startsWith('playbook/pbis/')&&!x.source.startsWith('playbook/pbis/'+pbi+'/');
   for(const x of evidence)if(obj(x)&&foreign(x))add('FOREIGN_PBI_EVIDENCE',1,str(x.id)?x.id:pbi);
-  const historical=x=>x.historical===true||foreign(x)||(x.kind==='repo-file'&&typeof x.source==='string'&&R.historicalPaths.some(p=>p.endsWith('/')?x.source.startsWith(p):x.source===p));
+  const historical=x=>historicalEvidence(x,pbi);
   const evScope=obj(state.evidenceScope)?state.evidenceScope:{},excluded=arr(evScope.exclude).filter(x=>typeof x==='string');
   if(excluded.length&&byId(decisions,evScope.decisionRef)?.status!=='approved')add('SCOPE_DECISION_MISSING',2,pbi);
   const scope=obj(state.paths)?state.paths:{},applies=[];
@@ -2571,12 +2598,14 @@ async function readiness(state,docs,pbi){
     else for(const b of r.branches){const bid=obj(b)&&str(b.id)?b.id:id+'/branch';
      if(!obj(b)||!str(b.id)||bids.includes(b.id)||!str(b.condition)||!str(b.expected)||apps.some(k=>!R.branchCoverage.includes(b[k]))||(apps.some(k=>b[k]==='conflicting')&&!str(b.risk))
       ||!arr(b.acceptance).length||arr(b.acceptance).some(a=>!acs.some(x=>obj(x)&&x.id===a&&arr(x.rules).includes(r.id)))){bad.push(bid);continue;}
-     bids.push(b.id);const ev=arr(b.evidence).map(e=>byId(evidence,e)).filter(x=>x&&!excluded.includes(x.system)&&!historical(x)&&x.level==='code');
-     if(b.cdms==='covered'&&apps.includes('cdms')&&(!ev.length||(scripted&&r.registration!=='active')))add('BRANCH_COVERAGE_UNPROVEN',1,b.id+'/cdms');
-     if(b.dab==='covered'&&apps.includes('dab')&&!ev.some(x=>x.system!=='legacy-crm'))add('BRANCH_COVERAGE_UNPROVEN',1,b.id+'/dab');
+     bids.push(b.id);const refs=[...new Set(arr(b.evidence))];for(const e of refs)if(!byId(evidence,e))add('EVIDENCE_UNKNOWN',1,b.id+'/'+show(e));
+     const ev=refs.map(e=>byId(evidence,e)).filter(x=>x&&!excluded.includes(x.system)&&!historical(x)&&x.level==='code'&&x.stale!==true
+      &&(x.kind!=='repo-file'||(fileOf(x.source)!==null&&(typeof x.sha256!=='string'||x.sha256.toLowerCase()===fileOf(x.source))))
+      &&(x.kind!=='external'||str(x.revision)));
+     for(const k of apps)if(b[k]==='covered'&&!branchProven(k,ev,scripted,r.registration))add('BRANCH_COVERAGE_UNPROVEN',1,b.id+'/'+k);
      for(const k of apps)if(!['covered','not-applicable'].includes(b[k]))open.add(k+':'+b.id);}
     for(const x of bad)add('BRANCH_INCOMPLETE',0,x);
-    const reuseOn=apps.filter(k=>k==='cdms'||r.dab===undefined);
+    const reuseOn=apps.filter(k=>k==='cdms'||k==='ui'||r.dab===undefined);
     if(r.targetAction==='reuse')for(const x of open)if(reuseOn.includes(x.split(':')[0]))add('BRANCH_NOT_COVERED',1,x.slice(x.indexOf(':')+1)+'/'+x.split(':')[0]);
     if(obj(r.dab)&&r.dab.status==='implemented')for(const x of open)if(x.startsWith('dab:'))add('DAB_BRANCH_GAP',1,x.slice(4));}
    if(str(r.rule)){const t=norm(r.rule);if(ruleTexts.includes(t))add('RULE_DUPLICATE',3,id);else ruleTexts.push(t);}
@@ -2624,13 +2653,14 @@ async function readiness(state,docs,pbi){
   for(const n of ['paths','feasibility'])part[n]=[[n,await fp(state[n]??null)]];
   // Only fingerprinted when recorded, so approvals given before 4.0 stay valid.
   part.evidenceScope=has(state,'evidenceScope')?[['evidenceScope',await fp(state.evidenceScope)]]:[];
+  part.reviewedContent=typeof docs.reviewedContent==='string'?[['reviewedContent',docs.reviewedContent]]:[];
   for(const k of R.approvals){const m=new Map();for(const n of R.scopes[k])for(const [key,v] of part[n])m.set(key,v);
    const basis=Object.fromEntries([...m.keys()].sort().map(key=>[key,m.get(key)]));review[k]={fingerprint:await fp(basis),basis};}
   for(const k of R.approvals){const a=obj(state.approvals)?state.approvals[k]:undefined;
    if(!obj(a)||a.status!=='approved'||!str(a.by)||!str(a.at)||!str(a.evidence)){if(R.requiredApprovals.includes(k))add('APPROVAL_PENDING',3,k);continue;}
    const b=a.basis;
-   if(!obj(b)||!Object.keys(b).length||Object.values(b).some(v=>typeof v!=='string'||!/^[0-9a-f]{16}$/.test(v))){add('APPROVAL_UNBOUND',3,k);continue;}
-   const cur=review[k].basis,changed=[],added=[],removed=[];
+   if(!obj(b)||!Object.keys(b).length||Object.entries(b).some(([key,v])=>typeof v!=='string'||!(key==='reviewedContent'?/^[0-9a-f]{64}$/:/^[0-9a-f]{16}$/).test(v))){add('APPROVAL_UNBOUND',3,k);continue;}
+   const cur=k==='user'&&!has(b,'reviewedContent')?Object.fromEntries(Object.entries(review[k].basis).filter(([key])=>key!=='reviewedContent')):review[k].basis,changed=[],added=[],removed=[];
    for(const key of Object.keys(cur).sort())if(!has(b,key))added.push(key);else if(b[key]!==cur[key])changed.push(key);
    for(const key of Object.keys(b).sort())if(!has(cur,key))removed.push(key);
    const diff=[['changed',changed],['added',added],['removed',removed]].filter(([,l])=>l.length).map(([w,l])=>w+' '+l.join(', '));
@@ -2651,19 +2681,48 @@ async function readiness(state,docs,pbi){
  const claimed=valid&&R.statuses.includes(state.status)?state.status:'';
  if(claimed&&R.statuses.indexOf(claimed)>capOf())add('STATUS_OVERCLAIMED',3,claimed);
  const computed=R.statuses[capOf()];
- return {schemaVersion:2,pbi,claimedStatus:claimed,computedStatus:computed,finalAllowed:computed==='Development-Ready',issues,review};
+ return {schemaVersion:2,pbi,claimedStatus:claimed,computedStatus:computed,finalAllowed:computed==='Development-Ready',issues,review,reviewedContent:docs.reviewedContent??null};
 }
 // ignoreFinal: judge the working draft only, as Approve & Generate does before it regenerates the final PBIs.
 async function checkPbi(root,folder,ignoreFinal=false){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
- const raw=await read(root,folder+'/pbi-state.json');let state=null;if(raw!==null){try{state=JSON.parse(raw);}catch{state=null;}}
- const at=f=>read(root,folder+'/'+f),files=[];
- for(const e of Array.isArray(state?.evidence)?state.evidence:[])if(e&&typeof e==='object'&&e.kind==='repo-file'&&isSafe(e.source)&&!files.some(([p])=>p===e.source))files.push([e.source,await sourceHash(root,e.source)]);
+ const snapshot=await reviewSnapshot(root,folder),raw=snapshot.raw;let state=null;if(raw!==null){try{state=JSON.parse(raw);}catch{state=null;}}
+ const reviewedContent=snapshot.fingerprint,at=f=>read(root,folder+'/'+f);
  const fin=ignoreFinal?async()=>null:at;
- return readiness(state,{request:await at('REQUEST.md'),draft:await at('DRAFT-PBI.md'),refined:await fin('REFINED-PBI.md'),cdmsRefined:(await fin('PBI-CDMS.md'))??await fin('CDMS-REFINED-PBI.md'),dabRefined:(await fin('PBI-DAB.md'))??await fin('DAB-REFINED-PBI.md'),uiRefined:await fin('PBI-UI.md'),application:await applicationOf(root,folder),decisionLog:await at('DECISION-LOG.md'),files:Object.fromEntries(files)},folder.split('/').pop());}
+ const result=await readiness(state,{request:await at('REQUEST.md'),draft:await at('DRAFT-PBI.md'),refined:await fin('REFINED-PBI.md'),cdmsRefined:(await fin('PBI-CDMS.md'))??await fin('CDMS-REFINED-PBI.md'),dabRefined:(await fin('PBI-DAB.md'))??await fin('DAB-REFINED-PBI.md'),uiRefined:await fin('PBI-UI.md'),application:await applicationOf(root,folder),decisionLog:await at('DECISION-LOG.md'),files:snapshot.files,reviewedContent},folder.split('/').pop());
+ if(await read(root,folder+'/pbi-state.json')!==raw||await reviewFingerprint(root,folder)!==reviewedContent)throw Error('PBI changed while it was being reviewed. Reload the review and try again.');
+ return result;}
+const REVIEW_INPUTS=['pbi.json','REQUEST.md','DRAFT-PBI.md','EVIDENCE.md','OPEN-QUESTIONS.md','DECISION-LOG.md','VALIDATION-MATRIX.md'];
+async function reviewSnapshot(root,folder){
+ safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+ const inputs={};
+ for(const name of REVIEW_INPUTS){let bytes=await bytesOf(root,folder+'/'+name);if(bytes===null)continue;
+  let text;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch(e){if(!(e instanceof TypeError))throw e;text=null;}
+  if(text!==null){if(name==='pbi.json'){try{text=canon(JSON.parse(text),true);}catch(e){if(!(e instanceof SyntaxError))throw e;}}
+   else{text=text.replace(/\r\n/g,'\n');if(name==='DRAFT-PBI.md')text=text.replace(/^Status:.*$/m,'Status: <generated-status>');}
+   bytes=enc.encode(text);}
+  inputs[name]=await hashBytes(bytes);}
+ const raw=await read(root,folder+'/pbi-state.json');let sources=[];
+ if(raw!==null){try{const state=JSON.parse(raw);
+   if(state&&typeof state==='object'&&!Array.isArray(state)){
+    sources=[...new Set((Array.isArray(state.evidence)?state.evidence:[]).filter(e=>e&&typeof e==='object'&&e.kind==='repo-file'&&isSafe(e.source)).map(e=>e.source))].sort();
+    delete state.status;delete state.approvalHistory;if(state.approvals&&typeof state.approvals==='object'&&!Array.isArray(state.approvals))delete state.approvals.user;}
+   inputs['pbi-state.json']=await hash(canon(state));}
+  catch(e){if(!(e instanceof SyntaxError))throw e;inputs['pbi-state.json']=await hash(raw);}}
+ const files=Object.create(null);for(const source of sources)files[source]=await sourceHash(root,source);
+ if(sources.length)inputs.evidenceSources=sources.map(source=>[source,files[source]]);
+ let attachments=null;
+ try{const p=await parent(root,folder+'/attachments');attachments=await p.dir.getDirectoryHandle(p.name);}
+ catch(e){if(e.name!=='NotFoundError'&&e.name!=='TypeMismatchError')throw e;}
+ if(attachments){const rows=[];for await(const [name,entry]of attachments.entries())if(entry.kind==='file'){const bytes=await bytesOf(root,folder+'/attachments/'+name);rows.push([name,bytes===null?null:await hashBytes(bytes)]);}rows.sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);inputs.attachments=rows;}
+ return {fingerprint:await hash(canon(inputs)),files,raw};
+}
+async function reviewFingerprint(root,folder){return (await reviewSnapshot(root,folder)).fingerprint;}
 // The development target of a 5.0 intake (pbi.json with repositories); 4.x PBIs record application without it and keep the 4.x path rules.
 async function applicationOf(root,folder){try{const p=JSON.parse(await read(root,folder+'/pbi.json')??'null');return typeof p?.application==='string'&&Array.isArray(p.repositories)?p.application:null;}catch{return null;}}
 // ---- Final PBIs: generated from pbi-state.json after the one final approval (Approve & Generate) ----
-const FINAL_NAMES=['REFINED-PBI.md','PBI-CDMS.md','PBI-DAB.md','PBI-UI.md','CDMS-REFINED-PBI.md','DAB-REFINED-PBI.md'];
+const FINAL_NAMES=['REFINED-PBI.md','REFINED-PBI.json','REFINED-PBI.docx',
+ 'PBI-CDMS.md','PBI-CDMS.json','PBI-CDMS.docx','PBI-DAB.md','PBI-DAB.json','PBI-DAB.docx','PBI-UI.md','PBI-UI.json','PBI-UI.docx',
+ 'CDMS-REFINED-PBI.md','CDMS-REFINED-PBI.json','CDMS-REFINED-PBI.docx','DAB-REFINED-PBI.md','DAB-REFINED-PBI.json','DAB-REFINED-PBI.docx'];
 const DOC_KEY={'PBI-CDMS.md':'cdms','PBI-DAB.md':'dab','PBI-UI.md':'ui'},DOC_TITLE={cdms:'CDMS backend',dab:'DAB backend',ui:'Shared Angular UI'};
 // Issues the final approval itself resolves; anything else blocks Approve & Generate.
 // A status claimed above the computed one is corrected by the approval itself.
@@ -2678,12 +2737,15 @@ function finalDocuments(request,state,folder){
  const arr=x=>Array.isArray(x)?x.filter(y=>y&&typeof y==='object'):[],rules=arr(state.rules),acs=arr(state.acceptanceCriteria),evidence=arr(state.evidence),deps=arr(state.dependencies);
  const ref=request?.number?'PBI '+request.number:String(request?.title??state.pbi);
  const a=state.approvals?.user||{},ext=k=>{const x=state.approvals?.[k];return x?.status==='approved'?'recorded: '+x.by+', '+x.at+' ('+x.evidence+')':'not recorded by this tool; obtain it as your organization requires';};
+ const recorded=k=>{const x=state.approvals?.[k];return x?.status==='approved'?{by:x.by,at:x.at,evidence:x.evidence}:null;};
  return names.map(name=>{
   const key=DOC_KEY[name]||null,own=!key?null:app==='both'?[key]:TARGETS[app].implement;
   const mine=r=>!own||own.some(k=>applies(k)&&r.paths?.[k]&&r.paths[k].status!=='not-applicable');
   const ownRules=rules.filter(mine),ownIds=ownRules.map(r=>r.id),otherRules=rules.filter(r=>!mine(r));
   const ownAcs=acs.filter(x=>Array.isArray(x.rules)&&x.rules.some(id=>ownIds.includes(id))),otherAcs=acs.filter(x=>!ownAcs.includes(x));
-  const cited=[...new Set(ownRules.flatMap(r=>[...(Array.isArray(r.evidence)?r.evidence:[]),...Object.values(r.paths||{}).flatMap(p=>Array.isArray(p?.evidence)?p.evidence:[])]))].map(id=>evidence.find(e=>e.id===id)).filter(Boolean);
+  const cited=[...new Set(ownRules.flatMap(r=>[...(Array.isArray(r.evidence)?r.evidence:[]),...Object.values(r.paths||{}).flatMap(p=>Array.isArray(p?.evidence)?p.evidence:[]),
+   ...(Array.isArray(r.branches)?r.branches:[]).flatMap(b=>Array.isArray(b?.evidence)?b.evidence:[])]))].map(id=>evidence.find(e=>e.id===id)).filter(Boolean);
+  const exportedRules=ownRules.map(r=>Array.isArray(r.branches)?{...r,branches:r.branches.map(b=>b&&typeof b==='object'&&Array.isArray(b.evidence)?{...b,evidence:[...new Set(b.evidence)]}:b)}:r);
   const related=names.filter(n=>n!==name),label=key?DOC_TITLE[key]:'Refined PBI',L=[];
   const ruleBlock=r=>{L.push('### '+r.id+' (rev '+r.rev+')','',String(r.rule),'');
    if(r.context)L.push('- Context: '+r.context);if(r.owner)L.push('- Enforced today by: '+r.owner.type+(r.owner.component?' ('+r.owner.component+')':'')+(Array.isArray(r.owner.types)?' ('+r.owner.types.join(', ')+')':''));
@@ -2702,7 +2764,13 @@ function finalDocuments(request,state,folder){
   L.push('## Acceptance criteria','',...(ownAcs.length?ownAcs.map(acLine):['None for this document.']),'',
    '## Technical implementation approach','');
   for(const r of ownRules){L.push('- '+r.id+': '+(r.targetAction||'see rule')+(own?' in '+own.filter(applies).map(k=>AREAS[k]).join(' and '):'')+'.');
-   for(const b of Array.isArray(r.branches)?r.branches:[])if(b&&b.id)L.push('  - Branch '+b.id+': when '+b.condition+', '+b.expected+'.');}
+   for(const b of Array.isArray(r.branches)?r.branches:[])if(b&&b.id){
+    L.push('  - Branch '+b.id+': when '+b.condition+', '+b.expected+'.');
+    const coverage=['cdms','dab','ui'].filter(k=>applies(k)&&typeof b[k]==='string').map(k=>k.toUpperCase()+': '+b[k]);if(coverage.length)L.push('    - Coverage: '+coverage.join(', '));
+    if(b.risk)L.push('    - Risk: '+b.risk);if(b.approach)L.push('    - Proposed approach: '+b.approach);
+    const branchEvidence=[...new Set(Array.isArray(b.evidence)?b.evidence:[])].map(id=>evidence.find(e=>e.id===id)).filter(Boolean);
+    for(const e of branchEvidence)L.push('    - Evidence: '+e.id+' ['+e.level+'] '+e.source+' — '+e.location+': '+e.summary+(e.revision?' ('+e.revision+')':''));
+    if(Array.isArray(b.acceptance)&&b.acceptance.length)L.push('    - Acceptance criteria: '+b.acceptance.join(', '));}}
   if(app==='both'&&key!=='ui')L.push('- Shared Angular UI work is in PBI-UI.md, once, for both backends.');
   if(key==='dab')L.push('- CDMS was analyzed as a read-only implementation reference; see the code references.');
   L.push('','## Existing code references','',...(cited.length?cited.map(e=>'- '+e.id+' ['+e.level+'] '+e.source+' — '+e.location+': '+e.summary+(e.revision?' ('+e.revision+')':'')):['None cited.']),'',
@@ -2720,8 +2788,8 @@ function finalDocuments(request,state,folder){
   L.push('','## Approval','','- Final user approval: '+(a.status==='approved'?a.by+', '+a.at+' ('+a.evidence+')':'pending'),
    '- PO/BA approval: '+ext('poba'),'- Technical approval: '+ext('technical'),'');
   const markdown=L.join('\n');
-  const json={schemaVersion:1,generatedBy:'Akzo SDD PBI Builder '+VERSION,document:name,target:key,developmentTarget:app,pbi:{number:request?.number||'',title:request?.title||'',folder},status:state.status,
-   approval:{user:a.status==='approved'?{by:a.by,at:a.at,evidence:a.evidence}:null},rules:ownRules,relatedRules:otherRules.map(r=>r.id),acceptanceCriteria:ownAcs,evidence:cited,dependencies:deps,
+  const json={schemaVersion:1,generatedBy:'Akzo SDD PBI Builder '+VERSION,document:name,target:key,developmentTarget:app,pbi:{number:request?.number||'',title:request?.title||'',folder,description:request?.description||'',originalAcceptanceCriteria:request?.acceptanceCriteria||''},status:state.status,
+   approval:{user:recorded('user'),poba:recorded('poba'),technical:recorded('technical')},rules:exportedRules,relatedRules:otherRules.map(r=>r.id),relatedRuleDetails:otherRules.map(r=>({id:r.id,rule:r.rule})),acceptanceCriteria:ownAcs,relatedAcceptanceCriteria:otherAcs,evidence:cited,dependencies:deps,
    decisions:arr(state.decisions).filter(d=>d.status==='approved'),openIssues:open.map(s=>s.slice(2))};
   return {name,key,markdown,json:JSON.stringify(json,null,2)+'\n'};});
 }
@@ -2756,8 +2824,10 @@ async function contentReview(root,folder){safePath(folder);if(!/^playbook\/pbis\
  return {secrets,blocking:secrets.filter(s=>!s.path.startsWith('attachments/')),instructions,unscanned};}
 // Records the user's final approval bound to the reviewed content, generates the final PBIs (Markdown, DOCX, JSON),
 // verifies every file and the readiness check, and restores every touched file when any step fails.
-async function approveAndGenerate(root,folder,who){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+async function approveAndGenerate(root,folder,who,reviewedSnapshot){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+ if(typeof reviewedSnapshot!=='string'||!/^[0-9a-f]{64}$/.test(reviewedSnapshot))throw Error('Review this PBI in the builder before approving it.');
  const by=line(who,120),before=await checkPbi(root,folder,true),blockers=approvalBlockers(before);
+ if(before.reviewedContent!==reviewedSnapshot)throw Error('This PBI changed after review. Review it again before approving.');
  if(blockers.length)throw Error('Not ready for the final approval ('+before.computedStatus+'). Resolve these first:\n'+blockers.map(i=>'['+i.code+'] '+i.ref+': '+i.message).join('\n'));
  const leaks=(await contentReview(root,folder)).blocking;
  if(leaks.length)throw Error('Sensitive data found; nothing was approved. Replace each value with [REDACTED: <kind>] (ask the agent), then review again:\n'+leaks.map(s=>'[SENSITIVE_DATA] '+s.path+': '+s.kind+' ('+s.count+')').join('\n'));
@@ -2768,6 +2838,7 @@ async function approveAndGenerate(root,folder,who){safePath(folder);if(!/^playbo
  const draft=await read(root,folder+'/DRAFT-PBI.md'),docs=finalDocuments(request,state,folder),out={'pbi-state.json':JSON.stringify(state,null,2)+'\n'};
  if(draft!==null)out['DRAFT-PBI.md']=draft.replace(/^Status:.*$/m,'Status: Development-Ready');
  for(const d of docs){const base=d.name.replace(/\.md$/,'');out[d.name]=d.markdown;out[base+'.json']=d.json;out[base+'.docx']=new Uint8Array(await docx(d.markdown).arrayBuffer());}
+ if(await reviewFingerprint(root,folder)!==reviewedSnapshot)throw Error('This PBI changed after review. Review it again before approving.');
  // Final documents of an earlier run or target that this run does not produce move to history/.
  const retire=[];for(const n of FINAL_NAMES)if(!(n in out)&&await file(root,folder+'/'+n)!==null)retire.push(n);
  const touched=[...Object.keys(out),...retire],prior={},stampv=stamp(),written=[];
@@ -2804,11 +2875,11 @@ async function refreshEvidence(root){
  const raw=await read(root,KNOWLEDGE);if(raw===null)return {checked:0,fingerprinted:[],stale:[],skipped:[],written:false};
  let index;try{index=JSON.parse(raw);}catch{throw Error(KNOWLEDGE+' is not valid JSON. Fix it before refreshing.');}
  if(!index||index.schemaVersion!==1||!Array.isArray(index.entries))throw Error('Unsupported '+KNOWLEDGE+'; expected schemaVersion 1 with an entries list.');
- const out={checked:0,fingerprinted:[],stale:[],skipped:[],written:false};let changed=false;
+ const out={checked:0,fingerprinted:[],stale:[],skipped:[],written:false},hashes=new Map();let changed=false;
  for(const e of index.entries){if(!e||typeof e!=='object'||Array.isArray(e))continue;const id=typeof e.id==='string'?e.id:typeof e.path==='string'?e.path:'';
   // shortcut: only paths inside the selected repository can be hashed; external sources need the revision recorded by the agent.
   try{safePath(e.path);}catch{out.skipped.push(id);continue;}
-  out.checked++;const f=await file(root,e.path),h=f===null?null:await hashBytes(await f.arrayBuffer());
+  out.checked++;let h;if(hashes.has(e.path))h=hashes.get(e.path);else{const f=await file(root,e.path);h=f===null?null:await hashBytes(await f.arrayBuffer());hashes.set(e.path,h);}
   if(h===null){if(e.stale!==true||e.staleReason!=='missing'){e.stale=true;e.staleReason='missing';changed=true;}out.stale.push(id);}
   else if(typeof e.sha256!=='string'){e.sha256=h;changed=true;out.fingerprinted.push(id);if(e.stale===true)out.stale.push(id);}
   else if(e.sha256!==h){e.stale=true;e.staleReason='changed';e.sha256=h;changed=true;out.stale.push(id);}
@@ -2817,24 +2888,28 @@ async function refreshEvidence(root){
  return out;
 }
 
-async function plan(root,files,managed=false){
+function equalBytes(a,b){return a instanceof Uint8Array&&b instanceof Uint8Array&&a.length===b.length&&a.every((v,i)=>v===b[i]);}
+function equalValue(a,b,binary){return a===null||b===null?a===b:binary?equalBytes(a,b):a===b;}
+async function currentValue(root,path,binary){return binary?bytesOf(root,path):read(root,path);}
+async function plan(root,files,managed=false,replaceExisting=false){
  let oldManifest=null;
  if(managed){const raw=await read(root,MANIFEST);if(raw!==null){try{oldManifest=JSON.parse(raw);}catch{throw Error('The existing installation record is invalid. Preserve it and compare manually.');}if(oldManifest?.schemaVersion!==1||!oldManifest.files||typeof oldManifest.files!=='object')throw Error('Unrecognized installation record.');}}
- const rows=[];for(const [path,text]of Object.entries(files)){const before=await read(root,path);let state=before===null?'create':before===text?'unchanged':'conflict';if(state==='conflict'&&oldManifest?.files[path]===await hash(before))state='update';rows.push({path,text,before,state});}
+ const rows=[];for(const [path,text]of Object.entries(files)){const binary=text instanceof Uint8Array,before=await currentValue(root,path,binary),same=equalValue(before,text,binary);let state=before===null?'create':same?'unchanged':'conflict';
+  if(state==='conflict'&&replaceExisting)state='update';else if(state==='conflict'&&oldManifest?.files[path]===(binary?await hashBytes(before):await hash(before)))state='update';rows.push({path,text,before,state});}
  if(managed){
   const owned=oldManifest?.files||{};
   for(const path of new Set([...Object.keys(owned),...LEGACY_FILES])){if(path in files||path===MANIFEST)continue;safePath(path);const before=await read(root,path);if(before===null)continue;rows.push({path,text:null,before,state:owned[path]===await hash(before)?'retire':'retire-conflict'});}
-  const map={};for(const row of rows)if(row.text!==null)map[row.path]=await hash(row.text);const text=JSON.stringify({schemaVersion:1,packageVersion:VERSION,files:map},null,2)+'\n',before=await read(root,MANIFEST);rows.push({path:MANIFEST,text,before,state:before===null?'create':before===text?'unchanged':'update'});}
+  const map={};for(const row of rows)if(row.text!==null)map[row.path]=row.text instanceof Uint8Array?await hashBytes(row.text):await hash(row.text);const text=JSON.stringify({schemaVersion:1,packageVersion:VERSION,files:map},null,2)+'\n',before=await read(root,MANIFEST);rows.push({path:MANIFEST,text,before,state:before===null?'create':before===text?'unchanged':'update'});}
  return rows;
 }
 async function apply(root,rows,allowUpdates=false){
  const blocked=rows.filter(r=>r.state==='conflict');if(blocked.length)throw Error('Existing files differ. Nothing was written. Resolve these files first:\n'+blocked.map(r=>r.path).join('\n'));
  if(rows.some(r=>r.state==='update'||r.state==='retire')&&!allowUpdates)throw Error('Review and allow updates to the previously installed files before continuing.');
- for(const row of rows)if(await read(root,row.path)!==row.before)throw Error('A file changed after review. Nothing was written. Review setup again: '+row.path);
+ for(const row of rows){const binary=row.text instanceof Uint8Array,current=await currentValue(root,row.path,binary);if(!equalValue(current,row.before,binary))throw Error('A file changed after review. Nothing was written. Review setup again: '+row.path);}
  const touched=[],backups=[],batch=stamp()+'-'+uid();
  try{
   for(const row of rows.filter(r=>r.state==='update'||r.state==='retire')){const path=BASE+'/backups/'+batch+'/'+row.path;if(await read(root,path)!==null)throw Error('Backup collision: '+path);await write(root,path,row.before);backups.push(path);}
-  for(const row of rows.filter(r=>r.state==='create'||r.state==='update')){touched.push(row);await write(root,row.path,row.text);if(await read(root,row.path)!==row.text)throw Error('Saved content did not match: '+row.path);}
+  for(const row of rows.filter(r=>r.state==='create'||r.state==='update')){touched.push(row);await write(root,row.path,row.text);const saved=await currentValue(root,row.path,row.text instanceof Uint8Array);if(!equalValue(saved,row.text,row.text instanceof Uint8Array))throw Error('Saved content did not match: '+row.path);}
   // Retire only after every new file is written and verified.
   for(const row of rows.filter(r=>r.state==='retire')){touched.push(row);await remove(root,row.path);}
  }catch(e){const errors=[];for(const row of touched.reverse()){try{if(row.before===null)await remove(root,row.path);else await write(root,row.path,row.before);}catch(err){errors.push(row.path+': '+err.message);}}
@@ -2861,9 +2936,11 @@ async function uninstall(root,rows){
  return {removed:done.map(r=>r.path),kept:rows.filter(r=>r.state==='keep').map(r=>r.path),backup:BASE+'/backups/'+batch+'/'};
 }
 async function listPbis(root){let dir;try{dir=await root.getDirectoryHandle('playbook');dir=await dir.getDirectoryHandle('pbis');}catch(e){if(e.name==='NotFoundError')return [];throw e;}
- const items=[];for await(const [name,entry]of dir.entries()){if(entry.kind!=='directory')continue;let title=name,number='',metadataWarning='';const folder='playbook/pbis/'+name;safePath(folder);const raw=await read(root,folder+'/pbi.json');if(raw){try{const m=JSON.parse(raw);if(m.kind==='comparison')continue;title=String(m.title||name);number=String(m.number||'');}catch{metadataWarning='Unreadable intake metadata; inspect saved documents.';}}
- const present=[];for(const file of ['REQUEST.md','DRAFT-PBI.md','REFINED-PBI.md','VALIDATION-MATRIX.md','OPEN-QUESTIONS.md','DECISION-LOG.md','EVIDENCE.md','pbi-state.json'])if(await read(root,folder+'/'+file)!==null)present.push(file);
- if(raw||present.length)items.push({folder,title,number,present,metadataWarning});}
+ const items=[];for await(const [name,entry]of dir.entries()){if(entry.kind!=='directory')continue;let title=name,number='',metadataWarning='';const folder='playbook/pbis/'+name;safePath(folder);const names=new Set();
+  for await(const [fileName,fileEntry]of entry.entries())if(fileEntry.kind==='file')names.add(fileName);
+  const raw=names.has('pbi.json')?await read(root,folder+'/pbi.json'):null;if(raw){try{const m=JSON.parse(raw);if(m.kind==='comparison')continue;title=String(m.title||name);number=String(m.number||'');}catch{metadataWarning='Unreadable intake metadata; inspect saved documents.';}}
+  const present=['REQUEST.md','DRAFT-PBI.md','REFINED-PBI.md','VALIDATION-MATRIX.md','OPEN-QUESTIONS.md','DECISION-LOG.md','EVIDENCE.md','pbi-state.json'].filter(file=>names.has(file));
+  if(raw||present.length)items.push({folder,title,number,present,metadataWarning});}
  return items.sort((a,b)=>a.title.localeCompare(b.title));
 }
 // Small ZIP writer using STORE compression. Names and contents are UTF-8.
@@ -2878,7 +2955,7 @@ function zip(files){const local=[],central=[];let offset=0,centralSize=0;const u
 // Source discovery: maps solutions, projects, references and file kinds of the selected folder, and checks each configured
 // source by reading a real file. It reads only .sln/.slnx/.csproj/.vbproj contents; other files are counted, never copied.
 const SOURCE_MAP=BASE+'/knowledge/source-map.json',SOURCE_MAP_MD=BASE+'/knowledge/SOURCE-MAP.md';
-const SKIP_DIRS=['.git','.vs','.github','bin','obj','node_modules','packages','TestResults','.angular','dist','playbook'];
+const SKIP_DIRS=['.git','.vs','.github','bin','obj','node_modules','packages','testresults','.angular','dist','playbook'];
 const FILE_KINDS={'.cs':'csharp','.vb':'vbnet','.js':'javascript','.ts':'typescript','.html':'html','.htm':'html','.aspx':'webforms','.ascx':'webforms','.asmx':'webforms','.master':'webforms',
  '.sql':'sql','.xaml':'workflow','.graphql':'graphql','.config':'config','.json':'json','.xml':'xml','.resx':'resources'};
 const MARKERS=[['Microsoft.Xrm.Sdk.Workflow','crm-workflow'],['System.Activities','crm-workflow'],['Microsoft.Xrm.Sdk','crm-sdk'],['Microsoft.CrmSdk','crm-sdk'],['Microsoft.Crm.Sdk','crm-sdk'],
@@ -2896,8 +2973,8 @@ function parseProject(path,text){
 }
 async function discoverSources(root,config){
  const files=[],state={truncated:false};
- async function walk(dir,rel){for await(const [name,h] of dir.entries()){const p=rel?rel+'/'+name:name;
-  if(h.kind==='directory'){if(!SKIP_DIRS.includes(name.toLowerCase())||(rel&&name.toLowerCase()==='playbook'))await walk(h,p);}
+ async function walk(dir,rel){if(state.truncated)return;for await(const [name,h] of dir.entries()){if(state.truncated)return;const p=rel?rel+'/'+name:name;
+  if(h.kind==='directory'){if(!SKIP_DIRS.includes(name.toLowerCase()))await walk(h,p);}
   else if(files.length<MAX_FILES)files.push(p);else{state.truncated=true;return;}}}
  await walk(root,'');
  const ext=f=>{const i=f.lastIndexOf('.');return i>f.lastIndexOf('/')?f.slice(i).toLowerCase():'';};
@@ -2913,12 +2990,18 @@ async function discoverSources(root,config){
   const dir=f.split('/').slice(0,-1).slice(0,2).join('/')||'.';(folders[dir]??={})[k]=(folders[dir][k]||0)+1;}
  // A source is readable only when a real file under it was read; a path outside the selected folder cannot be checked here.
  const sources=[];
- for(const key of ['legacy','dab','cdms']){const path=String(config?.sources?.[key]??'').trim();
+ for(const key of ['legacy','dab','cdms','ui']){const path=String(config?.sources?.[key]??'').trim();
   if(!path){sources.push({key,path:'',status:'not-configured',reason:'No path in sources.yaml.'});continue;}
   const prefix=path==='.'?'':path.replace(/\\/g,'/').replace(/\/+$/,'');
   if(prefix&&(!isSafe(prefix))){sources.push({key,path,status:'configured-inaccessible',reason:'Outside the selected folder. In Visual Studio, agent file tools reach only the open solution folder or folder; open a common parent folder or analyse from that repository.'});continue;}
   const probe=files.find(f=>(!prefix||f.startsWith(prefix+'/'))&&FILE_KINDS[ext(f)]&&!/\.(json|xml|config|resx)$/i.test(f));
   const text=probe?await read(root,probe):null;
+  sources.push(text!==null?{key,path,status:'readable',checkedFile:probe}:{key,path,status:'configured-inaccessible',reason:'No readable source file found under this path in the selected folder.'});}
+ for(const repo of Array.isArray(config?.others)?config.others:[]){const key='other:'+String(repo.name||'').trim(),path=String(repo.path??'').trim();
+  if(!path){sources.push({key,path,status:'not-configured',reason:'No path in sources.yaml.'});continue;}
+  const prefix=path==='.'?'':path.replace(/\\/g,'/').replace(/\/+$/,'');
+  if(prefix&&!isSafe(prefix)){sources.push({key,path,status:'configured-inaccessible',reason:'Outside the selected folder; source content was not inspected.'});continue;}
+  const probe=files.find(f=>(!prefix||f.startsWith(prefix+'/'))&&FILE_KINDS[ext(f)]&&!/\.(json|xml|config|resx)$/i.test(f)),text=probe?await read(root,probe):null;
   sources.push(text!==null?{key,path,status:'readable',checkedFile:probe}:{key,path,status:'configured-inaccessible',reason:'No readable source file found under this path in the selected folder.'});}
  const map={schemaVersion:1,generatedAt:new Date().toISOString(),filesScanned:files.length,truncated:state.truncated,sources,solutions,projects,folders,fileKinds:totals};
  const md=['# Source map','','Generated by the PBI Builder form from the selected folder. It is a navigation aid: read the source before relying on it.',
@@ -2931,6 +3014,6 @@ async function discoverSources(root,config){
  await write(root,SOURCE_MAP,JSON.stringify(map,null,2)+'\n');await write(root,SOURCE_MAP_MD,md);
  return map;
 }
-const api={VERSION,BASE,CONFIG,MANIFEST,AGENT,KNOWLEDGE,LEGACY_FILES,BASELINES,READINESS,comparison,cleanupComparison,comparisonGuide,baselineAgent,safePath,normalizeConfig,referenceOptions,TARGETS,APPLICATIONS,ANALYSIS_MODES,setupFiles,bundle,render,newPbi,refinePbi,attachmentPath,questionProgress,answerQuestion,skipQuestion,recordAnswer,recordSkip,handoff,branchMatrix,exportHandoff,readiness,checkPbi,approvalBlockers,finalDocuments,docx,approveAndGenerate,redactSecrets,scanInstructions,cleanAttachment,contentReview,readBytes:bytesOf,hashBytes,refreshEvidence,discoverSources,SOURCE_MAP,hash,read,write,plan,apply,uninstallPlan,uninstall,listPbis,zip};
+const api={VERSION,BASE,CONFIG,MANIFEST,AGENT,KNOWLEDGE,LEGACY_FILES,BASELINES,READINESS,comparison,cleanupComparison,comparisonGuide,baselineAgent,safePath,normalizeConfig,referenceOptions,TARGETS,APPLICATIONS,ANALYSIS_MODES,setupFiles,bundle,render,newPbi,refinePbi,attachmentPath,questionProgress,answerQuestion,skipQuestion,recordAnswer,recordSkip,handoff,branchMatrix,exportHandoff,readiness,checkPbi,reviewFingerprint,approvalBlockers,finalDocuments,docx,approveAndGenerate,redactSecrets,scanInstructions,cleanAttachment,contentReview,readBytes:bytesOf,hashBytes,refreshEvidence,discoverSources,SOURCE_MAP,meaningful,hash,read,write,plan,apply,uninstallPlan,uninstall,listPbis,zip};
 global.PBI=api;if(typeof module!=='undefined')module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

@@ -1,5 +1,51 @@
 # Changelog
 
+## 5.2.1 — 1 November 2026
+
+Targeted approval, evidence, UI coverage and final-artifact corrections.
+
+- New review snapshots include the contents of every recorded local evidence
+  source. Source changes or deletion invalidate snapshot-bound approval; existing
+  history is retained. Working-document line endings and metadata JSON layout
+  are normalized; source and attachment contents remain byte-sensitive. Earlier
+  per-record approvals keep their compatibility checks.
+- UI-only and combined CDMS/DAB/UI branch claims require evidence for each
+  applicable application. Unproven claims remain visible as gaps in handoff.
+- Markdown, JSON and DOCX include the same approved branch coverage and citations;
+  JSON also retains request details, related requirements and recorded optional
+  sign-offs. Unknown branch evidence IDs block final approval.
+- Independent questions appear together. A recommendation needs a reason and
+  valid supporting references; missing or changed local sources suppress it.
+  External source freshness remains unverified by the selected-repository form.
+- Duplicate source entries are read once per evidence-index refresh, and local
+  recommendation references are checked once per source per question screen.
+  One final user approval remains required; separate organizational and security
+  gates still apply when policy requires them.
+
+## 5.2.0 — 1 November 2026
+
+Selective reliability and decision-workflow improvements to the existing builder.
+
+- Approve & Generate binds the user's approval to a SHA-256 snapshot of the exact
+  reviewed PBI metadata, working documents, state and attachment contents. The
+  HTML and PowerShell readiness checks use the same fingerprint; older recorded
+  approvals retain their prior compatibility behavior until renewed.
+- Switching repositories clears selected PBIs, drafts, review state, question
+  controls and generated-download state. UI scope remains explicit in evidence,
+  branch checks and developer handoff.
+- The installer rejects junctions and reparse points along every repository-relative
+  path before reading or writing through them.
+- Decision-log and state updates, intake files and binary attachments roll back
+  together on failure. Final Markdown, JSON and DOCX are generated from the same
+  approved state and stale output formats are retired consistently.
+- PBI listing checks directory entries and reads only `pbi.json` metadata instead
+  of opening every document body; the measured before/after results are in
+  `docs/PERFORMANCE.md`.
+- The existing Business Decision Advisor now specifies evidence-backed A–D
+  choices, explicit NO RECOMMENDATION, business and technical impacts, custom
+  answers and defer. The existing question panel presents independent questions
+  together without preselecting a recommendation as the user's answer.
+
 ## 5.1.0 — 31 October 2026
 
 Sensitive-data protection and untrusted-content handling. No new dependency, no telemetry, no

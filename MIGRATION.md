@@ -1,4 +1,15 @@
-# Migrating to Akzo SDD PBI Builder 5.1.0
+# Migrating to Akzo SDD PBI Builder 5.2.1
+
+## From 5.2.0
+- Upgrade normally and review managed-file updates. Existing PBI folders,
+  decisions and approval history are preserved.
+- The final-review snapshot now includes recorded local evidence-source contents.
+  An earlier snapshot-bound approval may become stale and require a new review,
+  even when the PBI documents did not change.
+- Older approvals without a reviewed-content snapshot retain their historical
+  per-record checks; a renewed final approval binds the complete snapshot.
+  External evidence remains bound to its recorded revision, whose current
+  source freshness the selected-repository form cannot verify.
 
 ## From 5.0.0
 - Install or Upgrade as usual and allow reviewed updates (the agent file gains the "Untrusted
@@ -14,8 +25,8 @@
   dab required), even when its pbi.json records CDMS, DAB or Both; Approve & Generate produces
   its application's PBI (or REFINED-PBI.md when none was recorded). To use the 5.0 targets
   (including the shared UI), start a new version of the PBI.
-- Approvals: only the final user approval is required now. Approvals already recorded stay
-  valid; a recorded PO/BA or technical approval is still checked for staleness. A 4.x PBI that
+- Approvals: only the final user approval is required by the tool. Existing approval records
+  are retained and checked for staleness. A 4.x PBI that
   waited only for PO/BA or technical approval can be approved with Review & approve.
 - The 4.1 "Approved / Change Requested / Custom Response" choices are replaced by the form's
   Approve & Generate, Request Changes and Save Draft.
@@ -51,8 +62,8 @@ Install with the form or `Install-PBIBuilder.cmd -RepoPath <repo> -AllowUpdates`
 - Added: `.github/skills/business-decision-advisor/SKILL.md`, a workspace Agent Skill. A file you
   already have at that path is reported as a conflict and kept.
 - Create PBI uses a compact intake and autonomous investigation. Existing PBIs keep their
-  questions, answers and decisions; option keys A/B recorded earlier still work, new questions
-  use numbers. REQUEST.md may gain an "Investigation scope" section.
+  questions, answers and decisions; option keys A/B recorded earlier still work, and current
+  questions use A–D where appropriate. REQUEST.md may gain an "Investigation scope" section.
 - Repository first: no end-to-end analysis document is required. SOURCE-DISCOVERY.md is no
   longer written (source access goes into EVIDENCE.md); the catalog, ownership, coverage and
   plugin-rule documents are written only on request. Existing documents in PBI folders are kept
@@ -156,7 +167,7 @@ application code and unrelated agents.
 | `DRAFT-PBI.md` | Readable working PBI (template extended with actors, ownership, CDMS vs DAB, failures, data/state, readiness) |
 | `VALIDATION-MATRIX.md` | One record per business rule with detailed evidence |
 | `pbi-state.json` | Structured rules, criteria, owners, decisions and approvals for the readiness check |
-| `REFINED-PBI.md` | Now created only after PO/BA, technical and final user approval are recorded |
+| `REFINED-PBI.md` | Created after readiness checks and final user approval; separate organizational sign-offs still apply when required |
 
 ## Rollback
 - Restore files from `playbook/pbi-builder/backups/<batch>/` (same relative paths).

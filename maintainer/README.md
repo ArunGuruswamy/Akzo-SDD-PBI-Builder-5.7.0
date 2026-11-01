@@ -1,4 +1,4 @@
-# Akzo SDD PBI Builder 5.1.0 — maintainer notes
+# Akzo SDD PBI Builder 5.2.1 — maintainer notes
 
 Self-contained offline HTML utility plus a Windows PowerShell installer. No npm
 dependencies. End users open the compiled HTML or run Install-PBIBuilder.cmd; Node 20+
@@ -29,13 +29,14 @@ and Python 3 are only needed to rebuild and test.
 python update-fixture.py     # only when shell.html ids/options change
 python build.py              # writes Akzo-SDD-PBI-Builder.html
 node --check src/core.js && node --check src/ui.js
-node test-core.cjs           # 55 workflow checks on real temp files
-node test-ui.cjs             # real handlers, simulated DOM (not a rendered browser)
+node test-core.cjs           # 59 workflow checks on real temp files
+node test-ui.cjs             # built HTML scripts and handlers, simulated DOM (not a rendered browser)
+node --test test-521.cjs     # approval, source freshness, branch and artifact regressions
 node test-ps.cjs             # Windows PowerShell: byte equivalence with core.js, installer actions
 node compare-versions.cjs    # deterministic v2.1 / 3.0.0 / 3.1.0 / current evidence (MEASUREMENTS.md)
-node benchmark.cjs           # 3.1.0 versus current on identical inputs (docs/PERFORMANCE.md)
+node benchmark.cjs           # 3.1.0/current operations and 5.1.0 listing before/after (docs/PERFORMANCE.md)
 node demo-v4.cjs             # deterministic Create PBI -> questions -> validate transcript (docs/V4-DEMO.md)
-node release.cjs             # package root files + ../Akzo-SDD-PBI-Builder-<version>.zip, verified
+node release.cjs             # package root files + ../releases/Akzo-SDD-PBI-Builder-<version>/, verified
 ```
 `test-ps.cjs` removes the inherited process-scope execution policy override so the
 installer runs under the user's real policy. It never adds a bypass.
@@ -73,13 +74,25 @@ PowerShell pitfalls met here: variable names are case-insensitive (`$l` overwrit
 `$L`) and scoping is dynamic (a local `$sha` hides the script's `$Sha` from callees).
 They check completeness and consistency only.
 
+New final-approval snapshots also hash the working documents, attachments, state
+and distinct repository-relative evidence sources. Each check revalidates the
+snapshot to detect concurrent edits; source deletion or content changes make
+snapshot-bound approval stale. Document line endings and metadata JSON layout
+are normalized, but source and attachment contents are byte-sensitive. Older
+approvals without a reviewed-content snapshot retain their per-record
+compatibility checks; a new approval binds the complete snapshot. External
+evidence is bound to its recorded revision, but its current source cannot be
+independently checked by the selected-repository form.
+
 ## Decision engine
 `questionProgress`, `answerQuestion`, `skipQuestion`, `recordAnswer`, `recordSkip` (core.js)
 serve the form's question panel. Writes back up pbi-state.json and DECISION-LOG.md to
 history/, refuse when pbi-state.json changed since it was read, and supersede on edit. The
 agent applies the same rules in chat (guided-pbi-creation.md); that part is instructions only. `refreshEvidence()` and `-Action RefreshEvidence`
 hash raw bytes of repo-relative paths; external paths are skipped (agent records the
-revision instead).
+revision instead). The question panel validates referenced local files and any
+recorded hashes before displaying a recommendation, sharing one read per source
+across the displayed questions. External revision freshness is explicitly unverified.
 
 ## Boundaries
 The browser cannot silently select directories, learn absolute paths, authenticate

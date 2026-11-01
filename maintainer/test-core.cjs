@@ -7,6 +7,7 @@ const shared=require('./fixtures/readiness-cases.cjs'),CASE_PBI=shared.PBI,gaps=
 let count=0;
 async function test(name,fn){await fn();count++;console.log('PASS',name)}
 async function tempRoot(prefix){const d=await fs.mkdtemp(path.join(os.tmpdir(),prefix));return {dir:d,root:new DirectoryHandle(d)};}
+async function approveReviewed(root,folder,who){const r=await P.checkPbi(root,folder,true);return P.approveAndGenerate(root,folder,who,r.reviewedContent);}
 (async()=>{
  const {dir:tmp,root}=await tempRoot('akzo-pbi-test-');
  const {cases}=await shared.load(P);
@@ -142,11 +143,12 @@ async function tempRoot(prefix){const d=await fs.mkdtemp(path.join(os.tmpdir(),p
   for(const c of gaps.cases){const r=await P.readiness(c.state,c.docs,gaps.PBI);assert.notEqual(r.computedStatus,'Development-Ready','gap '+c.gap+': '+c.name);assert.equal(r.finalAllowed,false,'gap '+c.gap);}
  });
  await test('4.0 agent: commands, guided creation, business-only questions, interactive or numbered answers, evidence scope; two new guides',async()=>{
-  const a=setup.files[P.AGENT],g=setup.files[P.BASE+'/skills/guided-pbi-creation.md'],c=setup.files[P.BASE+'/skills/crm-plugin-workflow-intelligence.md'];
+  const a=setup.files[P.AGENT],g=setup.files[P.BASE+'/skills/guided-pbi-creation.md'],c=setup.files[P.BASE+'/skills/crm-plugin-workflow-intelligence.md'],advisor=setup.files['.github/skills/business-decision-advisor/SKILL.md'];
   for(const re of [/Start PBI \(also Create PBI, New PBI, Start Development, Implement PBI, Create\s+User Story/,/Resume PBI <n>[\s\S]*Validate PBI <n>/,/never ask them about plugin registration/,/does not stop business\s+refinement and is never a business question/,
-   /vscode\/askQuestions/,/then Custom\s+answer and Decide later as the last two numbers/,/Also accept back[\s\S]*status/,/do\s+not ask for a second confirmation of the same answer/,/It never approves the\s+whole PBI/,
+   /vscode\/askQuestions/,/Also accept back[\s\S]*status/,/do\s+not ask for a second confirmation of the same answer/,/It never approves the\s+whole PBI/,
    /explicit requirement, approved business decision,\s+proposed interpretation, technical observation, unverified technical detail or\s+open business question/,/Legacy CRM plugin and workflow behavior is historical\s+context, never proof/,/do not challenge it again/])assert.match(a,re);
   for(const re of [/ask nothing: start the analysis/,/Never show buttons, upload controls or progress bars that do not exist/,/never guess its content/,/offer Resume,\s+Review or Start New Version/,/Statuses: unanswered, answered, approved, deferred, superseded, not-applicable/])assert.match(g,re);
+  for(const re of [/Use options A, B, C and D when\s+there are up to four genuine alternatives/,/NO RECOMMENDATION/,/Custom answer and Decide later are separate controls/,/Business impact:/,/Technical impact:/])assert.match(advisor,re);
   for(const re of [/visited list of methods; stop at\s+a method already visited \(cycle\)/,/registration\s+unverified/,/Simple explanation/,/Important difference/,/"system": "legacy-crm"/])assert.match(c,re);
   // Plugin rules for DAB and the speed rules.
   for(const re of [/Extract Plugin Rules <n> \[plugin, entity or operation\]/,/## Work fast/,/read\s+pbi-state.json first/,/PLUGIN-RULES.md\s+\(Extract Plugin Rules\)/])assert.match(a,re);
@@ -358,11 +360,11 @@ async function tempRoot(prefix){const d=await fs.mkdtemp(path.join(os.tmpdir(),p
   assert.equal(m.fileKinds.javascript,1);assert.ok(!m.fileKinds.html);
   // JavaScript outside every project (a sibling web-resource folder) is still listed by folder.
   assert.deepEqual(m.folders.WebResources,{javascript:1});assert.deepEqual(m.folders['Source/Plugins'],{csharp:1,workflow:1});
-  assert.deepEqual(m.sources.map(s=>s.key+':'+s.status),['legacy:readable','dab:configured-inaccessible','cdms:configured-inaccessible']);
+  assert.deepEqual(m.sources.map(s=>s.key+':'+s.status),['legacy:readable','dab:configured-inaccessible','cdms:configured-inaccessible','ui:not-configured']);
   assert.match(m.sources[1].reason,/Outside the selected folder\. In Visual Studio/);assert.match(m.sources[2].reason,/No readable source file/);assert.ok(m.sources[0].checkedFile);
   const md=await P.read(r,P.BASE+'/knowledge/SOURCE-MAP.md');assert.match(md,/## Source folders \(two levels\)[\s\S]*\| WebResources \| javascript 1 \|/);assert.match(md,/\| DAB \(GraphQL\) \| \.\.\/DAB \| configured-inaccessible \|/);assert.match(md,/\| Source\/Plugins\/Plugins\.csproj \| \.NET Framework 4\.6\.2 \| crm-workflow, crm-sdk \| Source\/Common\/Common\.csproj \|/);
   const json=await P.read(r,P.SOURCE_MAP);assert.ok(!/hunter2|InvalidPluginExecutionException|function onSave/.test(json+md),'no source or secret copied');
-  const notConfigured=await P.discoverSources(r,{sources:{legacy:'',dab:'',cdms:''}});assert.deepEqual(notConfigured.sources.map(s=>s.status),['not-configured','not-configured','not-configured']);
+  const notConfigured=await P.discoverSources(r,{sources:{legacy:'',dab:'',cdms:''}});assert.deepEqual(notConfigured.sources.map(s=>s.status),['not-configured','not-configured','not-configured','not-configured']);
   // Only the two map files were added; nothing else in the repository changed.
   const all=[];const walk=async(d,rel)=>{for(const e of await fs.readdir(d,{withFileTypes:true})){const p=rel?rel+'/'+e.name:e.name;if(e.isDirectory())await walk(path.join(d,e.name),p);else all.push(p);}};await walk(dir,'');
   assert.deepEqual(all.filter(p=>!before.has(p)).sort(),[P.BASE+'/knowledge/SOURCE-MAP.md',P.SOURCE_MAP].sort());
@@ -410,10 +412,44 @@ async function tempRoot(prefix){const d=await fs.mkdtemp(path.join(os.tmpdir(),p
   let backups=0;for await(const [n] of (await (await (await (await (await root.getDirectoryHandle('playbook')).getDirectoryHandle('pbis')).getDirectoryHandle(pbi)).getDirectoryHandle('history'))).entries())if(n.startsWith('pbi-state.'))backups++;assert.equal(backups,3);
   await P.write(root,folder+'/pbi-state.json','{broken');await assert.rejects(()=>P.recordAnswer(root,folder,'Q-2',{option:'A',by:'Priya'}),/not valid JSON/);assert.equal(await P.read(root,folder+'/pbi-state.json'),'{broken');
  });
+ await test('failed decision-log writes restore both pbi-state.json and DECISION-LOG.md',async()=>{
+  const {root}=await tempRoot('akzo-decision-rollback-'),folder='playbook/pbis/decision-rollback',p=folder+'/pbi-state.json',log=folder+'/DECISION-LOG.md';
+  const state={schemaVersion:2,pbi:'decision-rollback',questions:[{id:'Q-1',question:'Should the record be retained?',blocking:true,status:'unanswered',options:[{key:'A',text:'Yes'}]}],decisions:[]};
+  await P.write(root,p,JSON.stringify(state));await P.write(root,log,'# Decisions\n');
+  const beforeState=await P.read(root,p),beforeLog=await P.read(root,log),proto=Object.getPrototypeOf(root).constructor.prototype,original=proto.getFileHandle;let fail=true;
+  proto.getFileHandle=async function(name,options){const h=await original.call(this,name,options);if(name==='DECISION-LOG.md'&&fail){const create=h.createWritable.bind(h);h.createWritable=async()=>{const w=await create();return{write:async data=>{if(fail){fail=false;throw Error('simulated decision-log disk failure');}return w.write(data);},close:()=>w.close(),abort:()=>w.abort()};};}return h;};
+  try{await assert.rejects(P.recordAnswer(root,folder,'Q-1',{option:'A',by:'Reviewer'}),/Decision update failed: simulated decision-log disk failure[\s\S]*State and decision log were restored/);}
+  finally{proto.getFileHandle=original;}
+  assert.equal(await P.read(root,p),beforeState);assert.equal(await P.read(root,log),beforeLog);
+ });
+ await test('PBI intake files and binary attachments roll back as one write set',async()=>{
+  const {root}=await tempRoot('akzo-intake-rollback-'),files={'playbook/pbis/pbi-intake/REQUEST.md':'Request','playbook/pbis/pbi-intake/pbi.json':'{}','playbook/pbis/pbi-intake/attachments/spec.bin':new Uint8Array([0,1,2,255])};
+  const rows=await P.plan(root,files),proto=Object.getPrototypeOf(root).constructor.prototype,original=proto.getFileHandle;let fail=true;
+  proto.getFileHandle=async function(name,options){const h=await original.call(this,name,options);if(name==='spec.bin'&&fail){const create=h.createWritable.bind(h);h.createWritable=async()=>{const w=await create();return{write:async data=>{if(fail){fail=false;throw Error('simulated attachment write failure');}return w.write(data);},close:()=>w.close(),abort:()=>w.abort()};};}return h;};
+  try{await assert.rejects(P.apply(root,rows),/File write failed: simulated attachment write failure/);}
+  finally{proto.getFileHandle=original;}
+  for(const path of Object.keys(files))assert.equal(await P.readBytes(root,path),null,path);
+ });
+ await test('PBI listing reads only intake metadata and preserves legacy/malformed discovery',async()=>{
+  const {root}=await tempRoot('akzo-list-reads-'),pbis='playbook/pbis';
+  await P.write(root,pbis+'/modern/pbi.json',JSON.stringify({title:'Modern',number:'7'}));
+  await P.write(root,pbis+'/modern/REQUEST.md','request body');
+  await P.write(root,pbis+'/modern/DRAFT-PBI.md','draft body');
+  await P.write(root,pbis+'/legacy/REQUEST.md','legacy request');
+  await P.write(root,pbis+'/malformed/pbi.json','{bad');
+  await P.write(root,pbis+'/comparison/pbi.json',JSON.stringify({kind:'comparison'}));
+  const proto=require('./fixtures/fs-handles.cjs').FileHandle.prototype,original=proto.getFile;let reads=0;
+  proto.getFile=async function(){reads++;return original.call(this);};
+  let items;try{items=await P.listPbis(root);}finally{proto.getFile=original;}
+  assert.equal(reads,3,'only pbi.json metadata for folders that contain it is read');
+  assert.deepEqual(items.map(x=>x.folder),[pbis+'/legacy',pbis+'/malformed',pbis+'/modern']);
+  assert.deepEqual(items.find(x=>x.folder===pbis+'/modern').present,['REQUEST.md','DRAFT-PBI.md']);
+  assert.match(items.find(x=>x.folder===pbis+'/malformed').metadataWarning,/Unreadable intake metadata/);
+ });
  await test('checkPbi reads the PBI folder files and blocks a final document without approvals',async()=>{
   const folder='playbook/pbis/'+CASE_PBI,c=cases.find(x=>x.name.startsWith('pending approvals'));
   await shared.writeCase(P,root,folder,c);
-  assert.deepEqual(await P.checkPbi(root,folder),await P.readiness(c.state,c.docs,CASE_PBI));
+  assert.deepEqual(await P.checkPbi(root,folder),await P.readiness(c.state,{...c.docs,reviewedContent:await P.reviewFingerprint(root,folder)},CASE_PBI));
   // Real files: deleting an evidence source after approval is detected from disk.
   const ok=cases[0];await shared.writeCase(P,root,folder,ok);assert.equal((await P.checkPbi(root,folder)).computedStatus,'Development-Ready');
   await fs.rm(path.join(tmp,'src/Plugins/FormulaStatusPlugin.cs'));const gone=await P.checkPbi(root,folder);
@@ -432,13 +468,15 @@ async function tempRoot(prefix){const d=await fs.mkdtemp(path.join(os.tmpdir(),p
   await P.write(root,P.KNOWLEDGE,'{"schemaVersion":2}');await assert.rejects(()=>P.refreshEvidence(root),/Unsupported/);
  });
  await test('application areas: CDMS, DAB (GraphQL), Custom (Legacy CRM/XRM); field values are not applications; scope questions only after investigation (PBI 277355)',async()=>{
-  const a=setup.files[P.AGENT],g=setup.files[P.BASE+'/skills/guided-pbi-creation.md'],y=setup.files[P.BASE+'/sources.yaml'];
+  const a=setup.files[P.AGENT],g=setup.files[P.BASE+'/skills/guided-pbi-creation.md'],y=setup.files[P.BASE+'/sources.yaml'],advisor=setup.files['.github/skills/business-decision-advisor/SKILL.md'];
   for(const re of [/## Application areas/,/CDMS: the new CDMS application/,/DAB \(GraphQL\)/,/Custom \(Legacy CRM\/XRM\)[\s\S]*key legacy; evidence system legacy-crm/,
    /identify the area of the current repository from its source/,/Search the actual\s+source\s+before describing any functionality/,/name the area that\s+owns it/,
    /Never invent an application, repository or dependency/,/OwnColor as a\s+Development Tool value\) is data, not an application/,/never infer a separate codebase, area or\s+question scope from it/,
-   /Mark an option Recommended only\s+when the request, approved behavior or evidence supports it/,/Decide later records the question as deferred/,/Ask about scope[\s\S]*only when the source and requirement cannot establish it/,
+   /Ask about scope[\s\S]*only when the source and requirement cannot establish it/,
    /find every place the relevant field or behavior is used in each available\s+application area/,/Every option names only applications, repositories,\s+processes and values that the source or the requirement establishes/])assert.match(a,re);
-  for(const re of [/"Custom answer" and "Decide later"/,/the\s+application areas \(CDMS, DAB \(GraphQL\), Custom \(Legacy CRM\/XRM\)\): from the\s+requirement and source; ask only if they cannot be established/,/"recommended": "1", "recommendedReason"/,/Decide later sets status\s+deferred/])assert.match(g,re);
+  assert.match(advisor,/Recommendation: Option A only when verified evidence supports it/);
+  for(const re of [/the\s+application areas \(CDMS, DAB \(GraphQL\), Custom \(Legacy CRM\/XRM\)\): from the\s+requirement and source; ask only if they cannot be established/,/"recommended": "A", "recommendationReason"/,/Omit\s+"recommended" when evidence supports no option/,/Decide later sets status\s+deferred/])assert.match(g,re);
+  assert.match(advisor,/Decide later sets the question to deferred/);
   assert.match(y,/legacy:\n    area: "Custom \(Legacy CRM\/XRM\)"[\s\S]*dab:\n    area: "DAB \(GraphQL\)"[\s\S]*cdms:\n    area: "CDMS"/);
   // OwnColor is never an application area, option or repository in anything installed; the misleading PBI 277355 question is gone.
   // Bundled historical reports are verbatim (they name legacy code such as AN.OwnColorExtractor), also inside the form; every instruction file is checked.
@@ -472,7 +510,7 @@ async function tempRoot(prefix){const d=await fs.mkdtemp(path.join(os.tmpdir(),p
    'respects the investigation scope':[[a,/when the user limits it \(for example\s+legacy only\), investigate other areas only when an essential dependency/]],
    'keeps rules apart':[[adv,/Does it combine separate business rules that should stay separate/]],
    'preserves approved decisions':[[a,/never ask a question that pbi-state.json or DECISION-LOG.md\s+already answers/],[adv,/Never change an approved decision silently/],[adv,/Never record a recommendation the user did not choose as a decision/]],
-   'understandable recommendation with numbered choices':[[adv,/What happens today:[\s\S]*What the requirement expects:[\s\S]*What is missing:[\s\S]*My recommendation: Option 1\.[\s\S]*Why I recommend it:[\s\S]*1\. The recommended option \(recommended\)\n2\. An alternative[\s\S]*3\. Custom answer\n4\. Decide later/],[a,/Options are always numbers, never letters/]],
+   'evidence-based A-D choices and custom/defer controls':[[adv,/What happens today:[\s\S]*What the requirement expects:[\s\S]*What is missing:[\s\S]*Recommendation: Option A only when verified evidence supports it/],[adv,/Why:[\s\S]*Business impact:[\s\S]*Technical impact:[\s\S]*A\. The first genuine alternative[\s\S]*B\. A distinct alternative/],[adv,/Custom answer and Decide later are separate controls/],[a,/A-D options/]],
    'ready-to-use answer':[[adv,/Ready-to-use answer:/]],
    'no legacy bias':[[adv,/Never recommend legacy behavior only because it exists/]],
    'evidence matrix':[[a,/1\. what the requirement expects;\s+2\. what happens today, with files and functions; 3\. existing functionality to\s+reuse; 4\. what is missing or inconsistent; 5\. which application layers need a\s+change; 6\. the regression tests needed/],[a,/confirmed\s+requirements, existing functionality, confirmed gaps, proposed changes,\s+approved decisions, remaining genuine blockers, source-access limitations and\s+required regression tests/]],
@@ -616,12 +654,26 @@ async function tempRoot(prefix){const d=await fs.mkdtemp(path.join(os.tmpdir(),p
   return {...c,docs:{...c.docs,draft:c.docs.refined.replace(/^Status:.*$/m,'Status: Ready for Review'),refined:null}};};
  const setupCase=async(target,mutate)=>{const {root}=await tempRoot('akzo-approve-');const fo='playbook/pbis/'+CASE_PBI,c=reviewCase(target);if(mutate)mutate(c);await shared.writeCase(P,root,fo,c);
   await P.write(root,fo+'/pbi.json',JSON.stringify({title:'Formula status',number:'305965',application:target,repositories:[],description:'Keep Released formulas Released.',acceptanceCriteria:'1. Released stays Released'}));return {root,fo};};
+ await test('final approval is bound to the exact reviewed request, state, source access, and attachments',async()=>{
+  const mutations=[
+   async(root,fo)=>{const p=JSON.parse(await P.read(root,fo+'/pbi.json'));p.title='Changed after review';await P.write(root,fo+'/pbi.json',JSON.stringify(p));},
+   async(root,fo)=>P.write(root,fo+'/REQUEST.md',(await P.read(root,fo+'/REQUEST.md'))+'\nChanged after review.\n'),
+   async(root,fo)=>{const s=JSON.parse(await P.read(root,fo+'/pbi-state.json'));s.sourceAccess=[{repository:'ui',status:'inaccessible'}];await P.write(root,fo+'/pbi-state.json',JSON.stringify(s));},
+   async(root,fo)=>P.write(root,fo+'/attachments/scope.txt','New attachment after review.'),
+   async(root,fo)=>P.write(root,fo+'/attachments/scope.txt','Changed attachment content.')
+  ];
+  for(const mutate of mutations){const {root,fo}=await setupCase('cdms');if(mutate===mutations[4])await P.write(root,fo+'/attachments/scope.txt','Original attachment content.');
+   const review=await P.checkPbi(root,fo,true);assert.match(review.reviewedContent,/^[0-9a-f]{64}$/);await mutate(root,fo);
+   await assert.rejects(P.approveAndGenerate(root,fo,'Arun',review.reviewedContent),/changed after review/);
+   assert.equal(JSON.parse(await P.read(root,fo+'/pbi-state.json')).approvals.user.status,'pending');}
+  const {root,fo}=await setupCase('cdms');await assert.rejects(P.approveAndGenerate(root,fo,'Arun'),/Review this PBI in the builder/);
+ });
  await test('Approve & Generate: one final approval bound to the reviewed content generates exactly the target PBIs (MD, DOCX, JSON), verified, with history',async()=>{
   for(const target of ['cdms','dab','ui','both']){const {root,fo}=await setupCase(target);
    const before=await P.checkPbi(root,fo);assert.deepEqual(before.issues.map(i=>i.code),['APPROVAL_PENDING'],target+': only the final approval is missing');
-   const stateBefore=await P.read(root,fo+'/pbi-state.json'),r=await P.approveAndGenerate(root,fo,'Arun Test');
+   const stateBefore=await P.read(root,fo+'/pbi-state.json'),r=await approveReviewed(root,fo,'Arun Test');
    assert.deepEqual(r.documents,P.TARGETS[target].documents.filter(n=>target!=='cdms'&&target!=='dab'||n!=='PBI-UI.md'),target);
-   assert.equal(r.check.computedStatus,'Development-Ready');assert.deepEqual(r.check.issues,[]);
+   assert.equal(r.check.computedStatus,'Development-Ready');assert.deepEqual(r.check.issues,[]);assert.equal(r.check.reviewedContent,before.reviewedContent);
    const st=JSON.parse(await P.read(root,fo+'/pbi-state.json'));assert.equal(st.status,'Development-Ready');assert.equal(st.approvals.user.by,'Arun Test');assert.deepEqual(st.approvals.user.basis,before.review.user.basis);
    assert.equal(st.approvals.poba.status,'pending','the user approval is never PO/BA approval');
    assert.match(await P.read(root,fo+'/DRAFT-PBI.md'),/^Status: Development-Ready$/m);
@@ -668,10 +720,10 @@ async function tempRoot(prefix){const d=await fs.mkdtemp(path.join(os.tmpdir(),p
  await test('5.1 Approve & Generate refuses a PBI whose working documents hold a credential (kind only, nothing written); generated MD, JSON and DOCX contain no detected secret',async()=>{
   const {root,fo}=await setupCase('cdms',c=>{c.state.notes='Staging: Server=db;Password=Hunter2!x;';});
   const before=await P.read(root,fo+'/pbi-state.json');
-  await assert.rejects(P.approveAndGenerate(root,fo,'Arun Test'),e=>/Sensitive data found; nothing was approved[\s\S]*\[SENSITIVE_DATA\] pbi-state\.json: connection string credential \(1\)/.test(e.message)&&!e.message.includes('Hunter2'));
+  await assert.rejects(approveReviewed(root,fo,'Arun Test'),e=>/Sensitive data found; nothing was approved[\s\S]*\[SENSITIVE_DATA\] pbi-state\.json: connection string credential \(1\)/.test(e.message)&&!e.message.includes('Hunter2'));
   assert.equal(await P.read(root,fo+'/pbi-state.json'),before);assert.equal(await P.read(root,fo+'/PBI-CDMS.md'),null);
   const st=JSON.parse(before);st.notes='Staging: Server=db;Password=[REDACTED: connection string credential];';await P.write(root,fo+'/pbi-state.json',JSON.stringify(st,null,2));
-  const r=await P.approveAndGenerate(root,fo,'Arun Test');assert.equal(r.check.computedStatus,'Development-Ready');assert.ok(r.files.some(x=>x.kind==='docx'));
+  const r=await approveReviewed(root,fo,'Arun Test');assert.equal(r.check.computedStatus,'Development-Ready');assert.ok(r.files.some(x=>x.kind==='docx'));
   for(const x of r.files)assert.deepEqual(P.redactSecrets(Buffer.from(await P.readBytes(root,x.path)).toString('latin1')).findings,[],x.name);
  });
  await test('5.1 untrusted content: instruction-like text in the request and attachments is flagged with source and line, kept, and listed in REQUEST.md and the review; business text is not flagged; the agent treats it as data',async()=>{
@@ -691,28 +743,28 @@ async function tempRoot(prefix){const d=await fs.mkdtemp(path.join(os.tmpdir(),p
  await test('Approve & Generate refuses with blockers, rolls back a failed generation, and renews a stale approval with history (PBI 305965 regressions)',async()=>{
   // Conflicting acceptance criteria recorded as an open blocking question: no approval possible, nothing written.
   {const {root,fo}=await setupCase('both',c=>{c.state.questions.push({id:'Q-9',blocking:true,owner:'po-ba',status:'open',question:'AC-2 and AC-3 conflict on when the code is set: which applies?'});});
-   const st0=await P.read(root,fo+'/pbi-state.json');await assert.rejects(P.approveAndGenerate(root,fo,'Arun'),/Not ready for the final approval[\s\S]*BLOCKING_QUESTION\] Q-9/);
+   const st0=await P.read(root,fo+'/pbi-state.json');await assert.rejects(approveReviewed(root,fo,'Arun'),/Not ready for the final approval[\s\S]*BLOCKING_QUESTION\] Q-9/);
    assert.equal(await P.read(root,fo+'/pbi-state.json'),st0);assert.equal(await P.read(root,fo+'/PBI-CDMS.md'),null);}
   // A UI scope excluded by the requirement: Both gives the two backend PBIs only; a reference never becomes a target.
   {const {root,fo}=await setupCase('both',c=>{c.state.paths.ui={applies:false,reason:'Requirement: no UI changes'};for(const r of c.state.rules)delete r.paths.ui;});
-   const r=await P.approveAndGenerate(root,fo,'Arun');assert.deepEqual(r.documents,['PBI-CDMS.md','PBI-DAB.md']);}
+   const r=await approveReviewed(root,fo,'Arun');assert.deepEqual(r.documents,['PBI-CDMS.md','PBI-DAB.md']);}
   {const {root,fo}=await setupCase('dab',c=>{c.state.paths.cdms={applies:true};});
-   await assert.rejects(P.approveAndGenerate(root,fo,'Arun'),/TARGET_SCOPE_CONFLICT\] cdms/);}
+   await assert.rejects(approveReviewed(root,fo,'Arun'),/TARGET_SCOPE_CONFLICT\] cdms/);}
   // The agent claimed Development-Ready too early: the check reports it, and the one approval settles it.
   {const {root,fo}=await setupCase('cdms',c=>{c.state.status='Development-Ready';c.docs.draft=c.docs.draft.replace(/^Status:.*$/m,'Status: Development-Ready');});
-   assert.deepEqual((await P.checkPbi(root,fo)).issues.map(i=>i.code),['APPROVAL_PENDING','STATUS_OVERCLAIMED']);assert.equal((await P.approveAndGenerate(root,fo,'Arun')).check.computedStatus,'Development-Ready');}
+   assert.deepEqual((await P.checkPbi(root,fo)).issues.map(i=>i.code),['APPROVAL_PENDING','STATUS_OVERCLAIMED']);assert.equal((await approveReviewed(root,fo,'Arun')).check.computedStatus,'Development-Ready');}
   // A failed write restores every touched file and reports the failure; nothing is approved.
   {const {root,fo}=await setupCase('dab');const st0=await P.read(root,fo+'/pbi-state.json'),d0=await P.read(root,fo+'/DRAFT-PBI.md');
    const pbis=await (await root.getDirectoryHandle('playbook')).getDirectoryHandle('pbis'),dir=await pbis.getDirectoryHandle(CASE_PBI),proto=Object.getPrototypeOf(dir),orig=proto.getFileHandle;
    proto.getFileHandle=async function(n,o){if(n==='PBI-DAB.docx'&&o&&o.create)throw Error('Simulated disk full');return orig.call(this,n,o);};
-   try{await assert.rejects(P.approveAndGenerate(root,fo,'Arun'),/Generation failed; nothing was approved\. Earlier files were restored\. Simulated disk full/);}finally{proto.getFileHandle=orig;}
+   try{await assert.rejects(approveReviewed(root,fo,'Arun'),/Generation failed; nothing was approved\. Earlier files were restored\. Simulated disk full/);}finally{proto.getFileHandle=orig;}
    assert.equal(await P.read(root,fo+'/pbi-state.json'),st0);assert.equal(await P.read(root,fo+'/DRAFT-PBI.md'),d0);assert.equal(await P.read(root,fo+'/PBI-DAB.md'),null);assert.equal(await P.read(root,fo+'/PBI-DAB.json'),null);}
   // Request Changes after approval: the approval goes stale; a new approval replaces it, keeps the old one in approvalHistory and regenerates.
-  {const {root,fo}=await setupCase('cdms');await P.approveAndGenerate(root,fo,'First');
+  {const {root,fo}=await setupCase('cdms');await approveReviewed(root,fo,'First');
    const st=JSON.parse(await P.read(root,fo+'/pbi-state.json'));st.rules[1].rule='Formula name is unique within its business unit and region';st.status='Ready for Review';await P.write(root,fo+'/pbi-state.json',JSON.stringify(st,null,2));
    await P.write(root,fo+'/DRAFT-PBI.md',(await P.read(root,fo+'/DRAFT-PBI.md')).replace(/^Status:.*$/m,'Status: Ready for Review').replace('Formula name is unique within its business unit','Formula name is unique within its business unit and region'));
-   const stale=await P.checkPbi(root,fo,true);assert.ok(stale.issues.some(i=>i.code==='APPROVAL_STALE'&&i.ref==='user: changed BR-2'));
-   const r=await P.approveAndGenerate(root,fo,'Second');assert.equal(r.check.computedStatus,'Development-Ready');
+   const stale=await P.checkPbi(root,fo,true);assert.ok(stale.issues.some(i=>i.code==='APPROVAL_STALE'&&i.ref.startsWith('user: changed ')&&i.ref.includes('BR-2')&&i.ref.includes('reviewedContent')));
+   const r=await approveReviewed(root,fo,'Second');assert.equal(r.check.computedStatus,'Development-Ready');
    const now=JSON.parse(await P.read(root,fo+'/pbi-state.json'));assert.equal(now.approvals.user.by,'Second');assert.equal(now.approvalHistory.at(-1).by,'First');assert.equal(now.approvalHistory.at(-1).status,'stale');
    assert.match(await P.read(root,fo+'/PBI-CDMS.md'),/and region/);}
  });

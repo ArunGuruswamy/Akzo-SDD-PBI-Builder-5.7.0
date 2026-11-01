@@ -1,5 +1,5 @@
-AKZO SDD PBI BUILDER 5.1.0
-Evidence-based PBI refinement | 30 October 2026
+AKZO SDD PBI BUILDER 5.2.1
+Evidence-based PBI refinement | 1 November 2026
 
 WHAT IT DOES
 One Copilot agent per repository: "Akzo SDD PBI Builder - <your project>", and an
@@ -7,9 +7,10 @@ offline form. The workflow:
   Start PBI -> requirements -> legacy repository -> development target
   (CDMS + UI, DAB + UI, UI Only or Both) -> deep analysis -> review ->
   approve once -> generate -> preview and download.
-The agent reads the actual legacy, CDMS, DAB and shared Angular UI code the target
-needs (DAB always reads CDMS as a reference; the shared UI is planned once), records
-who enforces each business rule with evidence, and asks only genuine business
+The agent investigates the relevant accessible legacy, CDMS, DAB and shared Angular
+UI code the target needs, reports inaccessible sources (DAB reads CDMS as a
+reference; the shared UI is planned once), records who enforces each business rule
+with evidence, and asks only genuine business
 decisions, together in one decision review. Review & approve in the form is the one
 approval: it is bound to a fingerprint of what was reviewed and generates the final
 PBIs (PBI-CDMS.md, PBI-DAB.md and/or PBI-UI.md, each also as DOCX and JSON).
@@ -111,9 +112,9 @@ form's Continue tab. There is no DAB plugin: DAB implements every applicable leg
 rule in its own code, while CDMS reuses verified plugins.
 
 FINISH A PBI: APPROVE ONCE
-Continue tab -> select the PBI -> Review selected PBI. Six cards show the PBI,
-requirements, repository analysis, implementation approach, decisions and technical
-readiness. Approve & Generate records your approval, generates the final PBIs and
+Continue tab -> select the PBI -> Review selected PBI. Seven cards show the PBI,
+requirements, repository analysis, implementation approach, decisions, sensitive
+content and technical readiness. Approve & Generate records your approval, generates the final PBIs and
 verifies every file; Request Changes and Save Draft approve nothing. The PBI
 Generated Successfully window offers DOCX, MD and JSON per PBI, a preview, and one
 ZIP with everything. Values that look like credentials are replaced with
@@ -124,18 +125,25 @@ PO/BA, security, architecture or technical sign-off your
 organization requires remains a separate step outside this tool. See
 docs/USER-GUIDE.md.
 
+UPGRADING FROM 5.2.0
+Install or upgrade as usual and allow reviewed updates. The updated review
+snapshot includes recorded local evidence-source contents, so an earlier
+snapshot-bound approval can require renewed review. Decisions and approval
+history are retained. External evidence is bound to its recorded revision; the
+form cannot verify the current contents of another repository.
+
 UPGRADING FROM 4.x
 Install as above (Install.cmd, the form, or Upgrade all) and allow reviewed updates.
-The setup window and the form show "update to 5.1.0 available". Files you never
-edited are updated with backups. PBIs, decisions and approvals stay valid; from
+The setup window and the form show "update to 5.2.1 available". Files you never
+edited are updated with backups. PBIs, decisions and approval history are kept; from
 5.0 only the final user approval is required, so a 4.x PBI that was waiting only
-for PO/BA or technical approval can be approved in Review & approve. Add the shared
+for PO/BA or technical approval can be reviewed and approved if other checks pass. Add the shared
 Angular UI path in setup when you use UI targets. See MIGRATION.md.
 
 UPGRADING FROM 3.1.0
 Install as above and allow reviewed updates (in the setup window: Install /
-Upgrade or Upgrade all). Existing PBIs and approvals stay
-valid. See MIGRATION.md.
+Upgrade or Upgrade all). Existing PBIs and approval history are retained; the
+readiness check reports any stale or missing evidence. See MIGRATION.md.
 
 UPGRADING FROM 3.0.0
 Install as above and allow reviewed updates. PBI folders are not changed. 3.0.0

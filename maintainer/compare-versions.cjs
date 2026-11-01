@@ -1,7 +1,7 @@
 'use strict';
 // Deterministic before/after evidence for identical settings: what each version's installed
 // instructions state, and what each version can check without an AI run. Not model output quality.
-const fs=require('node:fs'),P=require('./src/core.js'),V21=require('./fixtures/baseline-v2.1.0-core.cjs'),V30=require('./fixtures/baseline-v3.0.0-core.cjs'),V31=require('./fixtures/baseline-v3.1.0-core.cjs');
+const fs=require('node:fs'),path=require('node:path'),P=require('./src/core.js'),V21=require('./fixtures/baseline-v2.1.0-core.cjs'),V30=require('./fixtures/baseline-v3.0.0-core.cjs'),V31=require('./fixtures/baseline-v3.1.0-core.cjs');
 const shared=require('./fixtures/readiness-cases.cjs'),gaps=require('./fixtures/gap-cases.cjs');
 const assets=JSON.parse(fs.readFileSync(__dirname+'/src/assets.json','utf8'));
 const raw={projectName:'Customizations',ide:'visualstudio',role:'legacy',sources:{dab:'../DAB',legacy:'',cdms:''},includeReferences:true};
@@ -23,10 +23,10 @@ const checks=[
  ['Validation ownership matrix per rule',/VALIDATION-MATRIX/],
  ['Five readiness statuses incl. Needs Evidence and Awaiting PO/BA Decision',/Needs Evidence[\s\S]*Awaiting PO\/BA Decision/],
  ['Every BR mapped to ACs (positive/negative/boundary/permission)',/every rule\s+maps to acceptance criteria/i],
- ['One consolidated PO/BA + technical + final user approval before REFINED-PBI.md',/ONE consolidated approval summary/],
- ['Changed approved item invalidates approval',/increase that item's rev|marks the affected\s+approvals stale/i],
+ ['One approval screen and one required final-user approval before final PBIs',/one approval screen[\s\S]*Only Approve & Generate\s+records the user's final approval/i],
+ ['Material changes invalidate the exact-content approval',/If approved material\s+changes, the check marks the approval stale/i],
  ['Approval bound to fingerprints of the reviewed content, even without a rev change',/even when no rev changed/i],
- ['Paths in scope recorded per PBI and rule, with a reason when not applicable',/cdms and dab are\s+always required/i],
+ ['Paths in scope recorded per PBI and rule, with evidence or a reason',/Every path the target includes must be assessed for every rule, with evidence\s+or an explicit reason/i],
  ['Evidence records with level (code, registration, reach, runtime) and source',/evidence level code, registration,\s+reach, runtime/i],
  ['External evidence needs a revision; unobtainable evidence is a gap with an owner',/Evidence you could not obtain is not an evidence record/i],
  ['Document must carry the same rule and criterion text as the state',/must contain the same\s+text/i],
@@ -34,17 +34,17 @@ const checks=[
  ['3.0.0 approvals never carried forward on migration',/check never accepts a 3\.0\.0 approval/i],
  ['Business users never asked about registration, pipelines, builds or deployment',/never ask them about plugin registration/],
  ['Technical gaps go to the technical assessment instead of blocking business refinement',/does not stop business\s+refinement/],
- ['Interactive answers in VS Code (vscode/askQuestions) with a numbered fallback',/vscode\/askQuestions/],
+ ['A-D decision options, custom answer and defer alongside vscode/askQuestions',/Use options A, B, C and D when[\s\S]*Custom answer[\s\S]*Decide later/],
  ['One answer approves one decision; no second confirmation',/second confirmation of the same answer/],
- ['Guided Create PBI with prefill, save draft and resume',/Step n of 6/],
+ ['Guided Create PBI with Save Draft and Resume',/Save draft and Resume/],
  ['Bounded CRM plugin/workflow call-chain tracing with plain-language explanation',/visited list of methods/],
  ['Legacy CRM evidence never proves DAB behavior; recorded evidence scope',/historical\s+context, never proof/],
  ['New PBI starts without earlier decisions or approvals',/starts with no decisions or\s+approvals/i],
- ['Question gives business example and consequence of each option',/consequence of each|options with\s+their consequence/i],
- ['Do not re-ask an answered question in this PBI',/already holds an applicable approved answer|skip the\s+question if any of them already answers it/i],
+ ['Question records business and technical impacts',/Business impact:[\s\S]*Technical impact:/],
+ ['Do not re-ask an answered question in this PBI',/Never ask a question that pbi-state\.json or DECISION-LOG\.md\s+already answers/i],
  ['Reusable knowledge separated from PBI state, with fingerprints',/fingerprint/i],
  ['Reference documents navigated by heading index, not loaded whole',/REFERENCES-INDEX/],
- ['One unresolved question at a time (kept)',/one unresolved\s+(business )?question at a\s+time/i],
+ ['Independent unresolved questions shown together',/show every independent unresolved decision together/i],
  ['No application code changes during refinement (kept)',/not change application code|Do not\s+change application code/i]];
 const names=Object.keys(texts);
 const rows=checks.map(([name,re])=>`| ${name} | ${names.map(v=>re.test(texts[v])?'yes':'no').join(' | ')} |`);
@@ -54,7 +54,7 @@ const rows=checks.map(([name,re])=>`| ${name} | ${names.map(v=>re.test(texts[v])
  const blocked=cases.filter(c=>c.expect!=='Development-Ready').length;
  const gapRows=[];for(const c of gaps.cases)gapRows.push(`| ${c.gap}. ${c.name} | ${V30.readiness(c.state,c.docs,gaps.PBI).computedStatus} | ${(await P.readiness(c.state,c.docs,gaps.PBI)).computedStatus} |`);
  const v2gaps=cases.filter(c=>/^gap \d/.test(c.name)).map(c=>`| ${c.name} | ${c.expect} |`);
- console.log(`# Version comparison (deterministic)
+ const report=`# Version comparison (deterministic)
 
 Same settings for all: ${JSON.stringify(raw)}.
 "Stated" means the installed agent, template or on-demand guides contain the instruction.
@@ -86,5 +86,7 @@ v${P.VERSION}: ${detected}/${cases.length} shared scenarios give the expected st
 ## Not measured here
 Missed rules, incorrect ownership, unsupported assumptions, repeated questions and readiness
 errors in real model output; elapsed time; searches; tool calls; tokens; AI credits. Record them
-with Compare old & new (results.csv, QUALITY-REVIEW.md) using identical requests and repository state.`);
+with Compare old & new (results.csv, QUALITY-REVIEW.md) using identical requests and repository state.`;
+ await fs.promises.writeFile(path.resolve(__dirname,'../docs/MEASUREMENTS.md'),report+'\n');
+ console.log(report);
 })().catch(e=>{console.error(e);process.exitCode=1;});

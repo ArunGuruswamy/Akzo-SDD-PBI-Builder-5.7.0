@@ -4,6 +4,15 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto').webcrypto;
 const descriptors=JSON.parse(fs.readFileSync(__dirname+'/dom-fixture.json','utf8'));
 const html=fs.readFileSync(__dirname+'/Akzo-SDD-PBI-Builder.html','utf8');
+const scripts=html.match(/<script id="assets" type="application\/json">([\s\S]*?)<\/script>\s*<script>([\s\S]*?)<\/script>\s*<script>([\s\S]*?)<\/script>/);
+assert.ok(scripts,'Standalone HTML must embed the assets, core, and UI scripts');
+assert.deepEqual(JSON.parse(scripts[1]),JSON.parse(fs.readFileSync(__dirname+'/src/assets.json','utf8')));
+assert.equal(scripts[2],fs.readFileSync(__dirname+'/src/core.js','utf8'));
+assert.equal(scripts[3],fs.readFileSync(__dirname+'/src/ui.js','utf8'));
+assert.doesNotMatch(html,/requires every readiness check to pass and recorded PO\/BA, technical and final user approval/);
+assert.match(html,/PBI readiness is not implementation or release approval/);
+assert.match(html,/presents unresolved independent decisions together/);
+assert.match(html,/external sources only when accessible; the browser cannot verify their current contents/);
 class Element{constructor(x={}){Object.assign(this,{tagName:x.tag||'div',id:x.id||'',className:x.className||'',dataset:x.tab?{tab:x.tab}:{},value:x.value||'',checked:x.checked||false,textContent:x.text||'',disabled:false,children:[],style:{}});this.classList={contains:c=>this.className.split(' ').includes(c),toggle:(c,b)=>{const a=new Set(this.className.split(' '));b?a.add(c):a.delete(c);this.className=[...a].join(' ')},add:c=>this.classList.toggle(c,true),remove:c=>this.classList.toggle(c,false)};}setAttribute(k,v){this[k]=v}append(...xs){this.children.push(...xs)}replaceChildren(...xs){this.children=xs;if(this.tagName==='select')this.value=xs[0]?.value||''}add(x){this.append(x)}scrollIntoView(){}focus(){}select(){}click(){return this.onclick?.();}}
 const elems=descriptors.map(x=>new Element(x)),ids=Object.fromEntries(elems.filter(x=>x.id).map(x=>[x.id,x])),handlers={};
 const document={getElementById:id=>{if(!ids[id])throw Error('Missing HTML id: '+id);return ids[id]},querySelectorAll:s=>elems.filter(x=>s==='button'?x.tagName==='button':s==='nav button'?!!x.dataset.tab:s==='.panel'?x.className.split(' ').includes('panel'):false),createElement:tag=>new Element({tag}),addEventListener:(n,f)=>handlers[n]=f,documentElement:{outerHTML:html}};
@@ -12,8 +21,8 @@ class MemFile{constructor(name){this.name=name;this.kind='file';this.text='';}as
 class MemDir{constructor(name){this.name=name;this.kind='directory';this.children=new Map()}async getDirectoryHandle(n,{create=false}={}){let d=this.children.get(n);if(!d&&create){d=new MemDir(n);this.children.set(n,d);}if(!d)throw err('NotFoundError');if(d.kind!=='directory')throw err('TypeMismatchError');return d;}async getFileHandle(n,{create=false}={}){let f=this.children.get(n);if(!f&&create){f=new MemFile(n);this.children.set(n,f)}if(!f)throw err('NotFoundError');if(f.kind!=='file')throw err('TypeMismatchError');return f;}async*entries(){yield*this.children.entries()}async removeEntry(n){if(!this.children.delete(n))throw err('NotFoundError')}async isSameEntry(o){return o===this}}
 const root=new MemDir('AN.ColorDMS.Customizations');root.children.set('.git',new MemDir('.git'));root.children.set('ColorDMS.sln',new MemFile('ColorDMS.sln'));
 const urls=[];let copied='';
-const ctx={console,document,crypto,TextEncoder,TextDecoder,Blob,DataView,Uint8Array,Date,JSON,Option:class extends Element{constructor(text,value){super({tag:'option',value,text})}},URL:{createObjectURL:b=>{urls.push(b);return'blob:test'},revokeObjectURL:()=>{}},navigator:{clipboard:{writeText:async s=>{copied=s}}},setTimeout:()=>{},showDirectoryPicker:async()=>root,confirm:()=>true};ctx.window=ctx;vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(__dirname+'/src/core.js','utf8'),ctx);vm.runInContext(fs.readFileSync(__dirname+'/src/ui.js','utf8'),ctx);handlers.DOMContentLoaded();
+const ctx={console,document,crypto,TextEncoder,TextDecoder,Blob,DataView,Uint8Array,Date,JSON,Option:class extends Element{constructor(text,value){super({tag:'option',value,text})}},URL:{createObjectURL:b=>{urls.push(b);return'blob:test'},revokeObjectURL:()=>{}},navigator:{clipboard:{writeText:async s=>{copied=s}}},setTimeout:()=>{},showDirectoryPicker:async()=>root,confirm:()=>true};ctx.window=ctx;vm.createContext(ctx);ids.assets.textContent=scripts[1];
+vm.runInContext(scripts[2],ctx);vm.runInContext(scripts[3],ctx);handlers.DOMContentLoaded();
 async function click(id){await ids[id].onclick();if(ids.message.className.includes('error'))throw Error(ids.message.textContent);}
 (async()=>{
  assert.equal(ids.versionBadge.textContent,'PBI Builder · '+ctx.PBI.VERSION);
@@ -52,6 +61,7 @@ async function click(id){await ids[id].onclick();if(ids.message.className.includ
  // Review & approve: the only remaining step is the user's approval (the REFINED-PBI.md written too early is ignored and regenerated).
  let doneOpen=0;ids.doneDialog.showModal=()=>{doneOpen++;};ids.doneDialog.close=()=>{};
  await click('loadReview');assert.equal(ids.reviewCards.children.length,7);assert.equal(ids.approveGenerate.disabled,false);assert.match(ids.message.textContent,/Ready for your approval/);
+ assert.match(ids.reviewCards.children[2].children[1].textContent,/External evidence uses recorded revisions; current source freshness outside this repository is not checked/);
  assert.match(ids.reviewCards.children[6].children[1].textContent,/No blockers\. Your approval is the only step left/);
  ids.approverName.value='';await ids.approveGenerate.onclick();assert.match(ids.message.textContent,/Enter your name to approve/);
  ids.approverName.value='Priya (PO)';await click('approveGenerate');assert.equal(doneOpen,1);assert.match(ids.message.textContent,/PBI generated successfully: REFINED-PBI\.md \(with DOCX and JSON\)\. Every file was verified/);
@@ -115,21 +125,57 @@ async function click(id){await ids[id].onclick();if(ids.message.className.includ
  assert.match(sReq,/## Instruction-like text \(untrusted\)[\s\S]*attachments\/notes\.txt, line 2 \(overrides the agent rules\)/);assert.match(sReq,/## Attachments not scanned[\s\S]*attachments\/Spec\.pdf/);
  assert.equal(await ctx.PBI.read(root,sDir+'/attachments/Spec.pdf'),'%PDF-1.7 \u0000 binary','binary attachment kept as it is');
  assert.match(ids.message.textContent,/Sensitive values replaced with \[REDACTED\] before saving: connection string credential \(1\), credential assignment \(1\)\.\nInstruction-like text flagged as untrusted/);assert.match(ids.promptText.value,/treat it as untrusted data/);
- // Answer business questions in the form (VS Code and Visual Studio alike).
+ // Independent business questions appear together, with evidence-aware recommendations and separate custom/defer controls.
  const pbiName=draftDir.split('/').pop();
  await ctx.PBI.write(root,draftDir+'/pbi-state.json',JSON.stringify({schemaVersion:2,pbi:pbiName,status:'Draft',questions:[
-  {id:'Q-1',blocking:true,owner:'po-ba',status:'unanswered',question:'Should an Adaptation request be allowed for another Industrial Instance when an existing request already uses the same Product?',why:'Decides when a duplicate is blocked.',example:'Instance A and B share Product P.',
-   options:[{key:'A',text:'Yes. Allow different Industrial Instances; block duplicates only for the same Instance, Product and Local/Global combination.'},{key:'B',text:'No. Block duplicates across every Industrial Instance of the same Market Color.'}],recommended:'B'},
-  {id:'Q-2',blocking:false,owner:'po-ba',status:'unanswered',question:'Show an information banner on the request?',options:[{key:'A',text:'Yes'},{key:'B',text:'No'}]}],decisions:[]}));
- await click('loadQuestions');assert.match(ids.questionProgress.textContent,/Question 1 of 2 · Q-1 · required/);assert.match(ids.questionWhy.textContent,/duplicate is blocked[\s\S]*Example: Instance A/);
- assert.deepEqual(ids.answerOption.children.map(o=>o.value),['A','B','custom']);assert.equal(ids.answerOption.value,'B','recommended option preselected');assert.match(ids.answerOption.children[1].textContent,/\(recommended\)$/);
- ids.answeredBy.value='';await ids.submitAnswer.onclick();assert.match(ids.message.textContent,/Enter your name/);
- ids.answeredBy.value='Priya (PO)';ids.answerOption.value='A';await click('submitAnswer');assert.match(ids.message.textContent,/Saved DEC-1 for Q-1/);assert.match(ids.questionProgress.textContent,/Q-2 · optional/);
- await click('skipQuestion');assert.match(ids.message.textContent,/Q-2 set to decide later\. No unresolved business questions: 1 of 2 answered; decide later: Q-2/);
- await click('editPrevious');assert.match(ids.questionProgress.textContent,/Editing your answer to Q-1/);assert.equal(ids.answerOption.value,'A');
- ids.answerOption.value='custom';ids.customAnswer.value='Block duplicates only for the same Instance and Product.';await click('submitAnswer');assert.match(ids.message.textContent,/Saved DEC-2 for Q-1 \(replaces DEC-1\)/);
+  {id:'Q-1',blocking:true,owner:'po-ba',status:'unanswered',question:'Should an Adaptation request be allowed for another Industrial Instance when an existing request already uses the same Product?',why:'Decides when a duplicate is blocked.',example:'Instance A and B share Product P.',recommendationWhy:'The confirmed rule scopes duplicates to the same instance and product.',recommendationEvidence:['EV-Q1'],businessImpact:'Allows valid requests for another instance.',technicalImpact:'Change the duplicate key only.',
+   options:[{key:'A',text:'Yes. Allow different Industrial Instances; block duplicates only for the same Instance, Product and Local/Global combination.'},{key:'B',text:'No. Block duplicates across every Industrial Instance of the same Market Color.'}],recommended:'A'},
+  {id:'Q-2',blocking:false,owner:'po-ba',status:'unanswered',question:'Show an information banner on the request?',options:[{key:'A',text:'Yes'},{key:'B',text:'No'}],recommended:'A',recommendationReason:'A banner may help users.'}],
+  evidence:[{id:'EV-Q1',level:'code',kind:'external',source:'../CDMS/Duplicate.cs',location:'Check',revision:'main abc123',summary:'The existing duplicate rule'}],decisions:[]}));
+ await click('loadQuestions');assert.match(ids.questionProgress.textContent,/2 unresolved question\(s\) shown together/);assert.equal(ids.questionList.children.length,2);
+ const cardSelect=c=>c.children.find(x=>x.tagName==='select'),cardButtons=c=>c.children.find(x=>x.className==='buttons');
+ const q1=ids.questionList.children[0],q2=ids.questionList.children[1],answer1=cardSelect(q1),answer2=cardSelect(q2);
+ assert.match(q1.children[2].textContent,/A\. Yes\. Allow different[\s\S]*recommended/);assert.match(q1.children[3].textContent,/confirmed rule/);assert.match(q1.children[4].textContent,/valid requests/);assert.match(q1.children[5].textContent,/duplicate key/);assert.match(q1.children[6].textContent,/EV-Q1.*Duplicate\.cs/);
+ assert.equal(answer1.value,'','recommendation is shown without preselecting a user answer');assert.match(answer1.children[1].textContent,/\(recommended\)$/);
+ assert.match(q2.children[2].textContent,/NO RECOMMENDATION/);assert.doesNotMatch(answer2.children[1].textContent,/recommended/);assert.equal(cardButtons(q2).children.length,2,'custom and decide-later controls are separate from options');
+ ids.answeredBy.value='';await cardButtons(q1).children[0].onclick();assert.match(ids.message.textContent,/Enter your name/);
+ ids.answeredBy.value='Priya (PO)';answer1.value='B';await cardButtons(q1).children[0].onclick();assert.match(ids.message.textContent,/Saved DEC-1 for Q-1/);assert.equal(ids.questionList.children.length,1);assert.match(ids.questionList.children[0].children[0].textContent,/Q-2 · optional/);
+ await cardButtons(ids.questionList.children[0]).children[1].onclick();assert.match(ids.message.textContent,/Q-2 deferred/);assert.match(ids.questionList.children[0].children[0].textContent,/deferred/);
+ await click('editPrevious');assert.match(ids.questionProgress.textContent,/Editing Q-1/);const revised=cardSelect(ids.questionList.children[0]);assert.equal(revised.value,'B');
+ revised.value='custom';revised.onchange();const custom=ids.questionList.children[0].children.find(x=>x.tagName==='textarea');custom.value='Block duplicates only for the same Instance and Product.';
+ await cardButtons(ids.questionList.children[0]).children[0].onclick();assert.match(ids.message.textContent,/Saved DEC-2 for Q-1 \(earlier decision kept as superseded\)/);
  await click('showDecisions');assert.match(ids.message.textContent,/DEC-1 · superseded[\s\S]*DEC-2 · approved · replaces DEC-1[\s\S]*Block duplicates only/);
  assert.match(await ctx.PBI.read(root,draftDir+'/DECISION-LOG.md'),/DEC-2 \(approved, supersedes DEC-1\)/);
+ const questionState=JSON.parse(await ctx.PBI.read(root,draftDir+'/pbi-state.json'));
+ for(const id of ['Q-3','Q-4'])questionState.questions.push({id,blocking:false,status:'unanswered',question:id==='Q-3'?'Should the existing local rule be reused?':'Should the alternate path reuse the local rule?',options:[{key:'A',text:'Reuse it'},{key:'B',text:'Change it'}],recommended:'A',recommendationReason:'The existing implementation covers this scenario.',recommendationEvidence:['EV-LOCAL']});
+ questionState.questions.push({id:'Q-5',blocking:false,status:'unanswered',question:'Should this requirement use another PBI decision?',options:[{key:'A',text:'Reuse it'},{key:'B',text:'Decide here'}],recommended:'A',recommendationReason:'Another PBI chose this.',recommendationEvidence:['DEC-FOREIGN']});
+ questionState.questions.push({id:'Q-6',blocking:false,status:'unanswered',question:'Should an incomplete criterion guide the choice?',options:[{key:'A',text:'Yes'},{key:'B',text:'No'}],recommended:'A',recommendationReason:'The criterion supports it.',recommendationEvidence:['AC-INCOMPLETE']});
+ questionState.questions.push({id:'Q-7',blocking:false,status:'unanswered',question:'Should malformed source evidence guide the choice?',options:[{key:'A',text:'Yes'},{key:'B',text:'No'}],recommended:'A',recommendationReason:'The source supports it.',recommendationEvidence:['EV-INCOMPLETE']});
+ questionState.questions.push({id:'Q-8',blocking:false,status:'unanswered',question:'Should the confirmed criterion guide the choice?',options:[{key:'A',text:'Yes'},{key:'B',text:'No'}],recommended:'A',recommendationReason:'The criterion supports it.',recommendationEvidence:['AC-VALID']});
+ questionState.questions.push({id:'Q-9',blocking:false,status:'unanswered',question:'Should our earlier decision guide the choice?',options:[{key:'A',text:'Yes'},{key:'B',text:'No'}],recommended:'A',recommendationReason:'The approved decision supports it.',recommendationEvidence:['DEC-2']});
+ questionState.decisions.push({id:'DEC-FOREIGN',pbi:'a-different-pbi',status:'approved',evidence:'Approved for a different PBI'});
+ questionState.rules=[{id:'BR-VALID'}];questionState.acceptanceCriteria=[{id:'AC-INCOMPLETE',rev:1,type:'positive',rules:['BR-UNKNOWN'],criterion:'TBD'},{id:'AC-VALID',rev:1,type:'positive',rules:['BR-VALID'],criterion:'Given a valid request, when saved, then the rule applies.'}];
+ questionState.evidence.push({id:'EV-INCOMPLETE',level:'code',kind:'external',source:'../CDMS/Rule.cs',location:'Check',summary:'Existing rule',revision:'main abc',system:''});
+ questionState.evidence.push({id:'EV-LOCAL',level:'code',kind:'repo-file',source:'src/LocalRule.cs',location:'Check',summary:'Existing local rule',sha256:'0'.repeat(64)});
+ await ctx.PBI.write(root,draftDir+'/pbi-state.json',JSON.stringify(questionState));await click('loadQuestions');
+ const question=id=>ids.questionList.children.find(c=>c.children[0].textContent.startsWith(id+' '));
+ assert.match(question('Q-3').children[2].textContent,/NO RECOMMENDATION/,'missing cited source cannot support a recommendation');
+ assert.match(question('Q-5').children[2].textContent,/NO RECOMMENDATION/,'another PBI decision cannot support a recommendation');
+ assert.match(question('Q-7').children[2].textContent,/NO RECOMMENDATION/,'malformed evidence cannot support a recommendation');
+ assert.match(question('Q-6').children[2].textContent,/NO RECOMMENDATION/,'an incomplete criterion cannot support a recommendation');
+ assert.match(question('Q-8').children[2].textContent,/\(recommended\)/,'valid criteria can support recommendations');
+ assert.match(question('Q-9').children[2].textContent,/\(recommended\)/,'this PBI’s approved decisions can support recommendations');
+ await ctx.PBI.write(root,'src/LocalDir/child.txt','not a source file');questionState.evidence[questionState.evidence.length-1].source='src/LocalDir';
+ await ctx.PBI.write(root,draftDir+'/pbi-state.json',JSON.stringify(questionState));await click('loadQuestions');
+ assert.match(question('Q-3').children[2].textContent,/NO RECOMMENDATION/,'a directory cannot support a recommendation');
+ questionState.evidence[questionState.evidence.length-1].source='src/LocalRule.cs';
+ await ctx.PBI.write(root,'src/LocalRule.cs','original rule');questionState.evidence[questionState.evidence.length-1].sha256=await ctx.PBI.hashBytes(new TextEncoder().encode('original rule'));
+ await ctx.PBI.write(root,draftDir+'/pbi-state.json',JSON.stringify(questionState));
+ const getFile=MemFile.prototype.getFile;let localReads=0;MemFile.prototype.getFile=async function(){if(this.name==='LocalRule.cs')localReads++;return getFile.call(this);};
+ try{await click('loadQuestions');}finally{MemFile.prototype.getFile=getFile;}
+ assert.equal(localReads,1,'independent questions share one source read');assert.match(question('Q-3').children[2].textContent,/\(recommended\)/);assert.match(question('Q-4').children[2].textContent,/\(recommended\)/);
+ await ctx.PBI.write(root,'src/LocalRule.cs','changed rule');await click('loadQuestions');
+ assert.match(question('Q-3').children[2].textContent,/NO RECOMMENDATION/,'changed cited source cannot support a recommendation');
  await click('refreshEvidence');assert.match(ids.message.textContent,/No evidence index found/);
  ids.displayPath.value='C:\\wrong\\OtherProject';await ids.install.onclick();assert.match(ids.message.textContent,/different folder name/);
  // Repair restores a deleted managed file; Uninstall asks first, keeps PBIs and backs up; a second repository joins the session list.
@@ -139,7 +185,9 @@ async function click(id){await ids[id].onclick();if(ids.message.className.includ
  ctx.confirm=()=>false;await click('uninstall');assert.match(ids.message.textContent,/Cancelled/);assert.ok(await ctx.PBI.read(root,ctx.PBI.AGENT));
  ctx.confirm=()=>true;await click('uninstall');assert.match(ids.message.textContent,/Uninstalled \d+ files\. Backups: playbook\/pbi-builder\/backups\/uninstall-/);assert.equal(await ctx.PBI.read(root,ctx.PBI.AGENT),null);assert.ok(await ctx.PBI.read(root,draftDir+'/DECISION-LOG.md'));
  await ids.uninstall.onclick();assert.match(ids.message.textContent,/Nothing to uninstall/);
- const other=new MemDir('Second repo');ctx.showDirectoryPicker=async()=>other;await click('pick');assert.equal(ids.recentRepos.children.length,2);assert.equal(ids.connectedName.textContent,'Second repo');
+ const other=new MemDir('Second repo');ids.existingPbi.value=draftDir;ids.manualPbi.value=draftDir;ids.approverName.value='Old reviewer';ids.answeredBy.value='Old decision maker';ctx.showDirectoryPicker=async()=>other;await click('pick');
+ assert.equal(ids.recentRepos.children.length,2);assert.equal(ids.connectedName.textContent,'Second repo');assert.equal(ids.existingPbi.value,'');assert.equal(ids.manualPbi.value,'');
+ assert.equal(ids.approverName.value,'');assert.equal(ids.answeredBy.value,'');assert.equal(ids.questionList.children.length,0);assert.equal(ids.reviewCards.children.length,0);assert.equal(ids.promptText.value,'');
  ids.recentRepos.value='0';await ids.recentRepos.onchange();await new Promise(r=>setImmediate(r));assert.equal(ids.connectedName.textContent,root.name);
  // Select Implementation References: opens after the target is chosen, never offers the target, none or several, reset on cancel.
  ids.otherRepos.value='Portal = ../Portal';const opts=()=>ids.refList.children.map(l=>l.children[0].value);let opened=0;ids.refDialog.showModal=()=>{opened++;};

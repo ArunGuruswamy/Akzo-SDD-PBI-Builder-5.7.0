@@ -100,7 +100,17 @@ function Test-SafePath($path) {
 }
 function Get-Full([string]$rel) {
     if (-not (Test-SafePath $rel)) { throw "Invalid relative file path: $rel" }
-    return [System.IO.Path]::Combine($script:Repo, $rel.Replace('/', '\'))
+    $full = $script:Repo
+    foreach ($part in $rel.Split('/')) {
+        $full = [System.IO.Path]::Combine($full, $part)
+        try { $attributes = [System.IO.File]::GetAttributes($full) }
+        catch [System.IO.FileNotFoundException] { continue }
+        catch [System.IO.DirectoryNotFoundException] { continue }
+        if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Repository path contains a junction or reparse point; refusing access: $rel"
+        }
+    }
+    return $full
 }
 function Read-Text([string]$rel) { $f = Get-Full $rel; if ([System.IO.File]::Exists($f)) { return [System.IO.File]::ReadAllText($f, $Utf8) }; return $null }
 function Write-Text([string]$rel, [string]$text) {
@@ -284,23 +294,117 @@ function Show-Plan($rows) {
 function Get-Norm([string]$s) { return [regex]::Replace($s, '[ \t\r\n]+', ' ').Trim(' ') }
 function Get-Keys($o) { $k = [string[]]@($o.PSObject.Properties | ForEach-Object { $_.Name }); [array]::Sort($k, [System.StringComparer]::Ordinal); return , $k }
 # Canonical JSON identical to canon() in core.js: sorted keys, whitespace runs in text collapsed.
-function ConvertTo-Canon($x) {
+function ConvertTo-Canon($x, [bool]$binaryNumbers = $false) {
     if ($null -eq $x) { return 'null' }
     if ($x -is [string]) { return '"' + (ConvertTo-JsEscaped (Get-Norm $x)) + '"' }
     if ($x -is [bool]) { if ($x) { return 'true' }; return 'false' }
-    # shortcut: non-integer numbers are formatted by each runtime and may differ in exotic cases; state values are integers and text.
-    if (Test-Num $x) { $d = [double]$x; if ([math]::Floor($d) -eq $d -and [math]::Abs($d) -lt 1e15) { return ([long]$d).ToString([Globalization.CultureInfo]::InvariantCulture) }; return $d.ToString('R', [Globalization.CultureInfo]::InvariantCulture) }
-    if ($x -is [array]) { $p = New-Object System.Collections.Generic.List[string]; foreach ($i in $x) { $p.Add((ConvertTo-Canon $i)) }; return '[' + ($p -join ',') + ']' }
-    if ($x -is [System.Collections.IDictionary]) { $k = [string[]]@($x.Keys); [array]::Sort($k, [System.StringComparer]::Ordinal); return '{' + ((@($k | ForEach-Object { '"' + (ConvertTo-JsEscaped $_) + '":' + (ConvertTo-Canon $x[$_]) })) -join ',') + '}' }
-    if (Test-Obj $x) { return '{' + ((@((Get-Keys $x) | ForEach-Object { '"' + (ConvertTo-JsEscaped $_) + '":' + (ConvertTo-Canon $x.PSObject.Properties[$_].Value) })) -join ',') + '}' }
+    if (Test-Num $x) {
+        $d = [double]$x
+        if ($binaryNumbers) {
+            if ($d -eq 0) { $d = 0.0 }
+            $bytes = [BitConverter]::GetBytes($d)
+            if ([BitConverter]::IsLittleEndian) { [array]::Reverse($bytes) }
+            return '#' + [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
+        }
+        # Existing approval fingerprints retain their historical numeric formatting.
+        if ([math]::Floor($d) -eq $d -and [math]::Abs($d) -lt 1e15) { return ([long]$d).ToString([Globalization.CultureInfo]::InvariantCulture) }
+        return $d.ToString('R', [Globalization.CultureInfo]::InvariantCulture)
+    }
+    if ($x -is [array]) { $p = New-Object System.Collections.Generic.List[string]; foreach ($i in $x) { $p.Add((ConvertTo-Canon $i $binaryNumbers)) }; return '[' + ($p -join ',') + ']' }
+    if ($x -is [System.Collections.IDictionary]) { $k = [string[]]@($x.Keys); [array]::Sort($k, [System.StringComparer]::Ordinal); return '{' + ((@($k | ForEach-Object { '"' + (ConvertTo-JsEscaped $_) + '":' + (ConvertTo-Canon $x[$_] $binaryNumbers) })) -join ',') + '}' }
+    if (Test-Obj $x) { return '{' + ((@((Get-Keys $x) | ForEach-Object { '"' + (ConvertTo-JsEscaped $_) + '":' + (ConvertTo-Canon $x.PSObject.Properties[$_].Value $binaryNumbers) })) -join ',') + '}' }
     return 'null'
 }
 function Get-Fp($x) { return (Get-TextHash (ConvertTo-Canon $x)).Substring(0, 16) }
+function Get-ReviewFingerprint([string]$folder, $sourceFiles = $null) {
+    $inputs = New-Map
+    $strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
+    $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+    $serializer.MaxJsonLength = [int]::MaxValue
+    foreach ($name in @('pbi.json', 'REQUEST.md', 'DRAFT-PBI.md', 'EVIDENCE.md', 'OPEN-QUESTIONS.md', 'DECISION-LOG.md', 'VALIDATION-MATRIX.md')) {
+        $full = Get-Full "$folder/$name"
+        if ([System.IO.File]::Exists($full)) {
+            $bytes = [System.IO.File]::ReadAllBytes($full)
+            $text = $null
+            try { $text = $strictUtf8.GetString($bytes) } catch [System.Text.DecoderFallbackException] { }
+            if ($null -ne $text) {
+                if ($text.StartsWith([string][char]0xFEFF, [System.StringComparison]::Ordinal)) { $text = $text.Substring(1) }
+                if ($name -ceq 'pbi.json') {
+                    try { $parsed = $serializer.DeserializeObject($text); $text = ConvertTo-Canon $parsed $true }
+                    catch {
+                        if (-not ($_.Exception.InnerException -is [System.ArgumentException]) -and -not ($_.Exception.InnerException -is [System.InvalidOperationException])) { throw }
+                    }
+                }
+                else {
+                    $text = $text.Replace("`r`n", "`n")
+                    if ($name -ceq 'DRAFT-PBI.md') { $text = [regex]::Replace($text, '(?m)^Status:.*$', 'Status: <generated-status>') }
+                }
+                $bytes = $Utf8.GetBytes($text)
+            }
+            $inputs[$name] = Get-Hash $bytes
+        }
+    }
+    $statePath = "$folder/pbi-state.json"
+    $stateRaw = Read-Text $statePath
+    $sources = New-Object System.Collections.Generic.List[string]
+    if ($null -ne $stateRaw) {
+        try {
+            $state = $serializer.DeserializeObject($stateRaw)
+            if ($state -is [System.Collections.IDictionary]) {
+                if ($state['evidence'] -is [array]) {
+                    foreach ($e in $state['evidence']) {
+                        if ($e -is [System.Collections.IDictionary] -and (Test-Same $e['kind'] 'repo-file') -and (Test-SafePath $e['source']) -and -not $sources.Contains([string]$e['source'])) { $sources.Add([string]$e['source']) }
+                    }
+                }
+                [void]$state.Remove('status'); [void]$state.Remove('approvalHistory')
+                $approvals = $state['approvals']
+                if ($approvals -is [System.Collections.IDictionary]) { [void]$approvals.Remove('user') }
+            }
+            $inputs['pbi-state.json'] = Get-TextHash (ConvertTo-Canon $state)
+        }
+        catch {
+            if (-not ($_.Exception.InnerException -is [System.ArgumentException]) -and -not ($_.Exception.InnerException -is [System.InvalidOperationException])) { throw }
+            $inputs['pbi-state.json'] = Get-Hash ([System.IO.File]::ReadAllBytes((Get-Full $statePath)))
+        }
+    }
+    if ($sources.Count) {
+        $paths = [string[]]$sources.ToArray(); [array]::Sort($paths, [System.StringComparer]::Ordinal)
+        $sourceRows = New-Object System.Collections.Generic.List[object]
+        foreach ($source in $paths) {
+            if ($null -ne $sourceFiles -and $sourceFiles.ContainsKey($source)) { $h = $sourceFiles[$source] }
+            else { $full = Get-Full $source; $h = if ([System.IO.File]::Exists($full)) { Get-Hash ([System.IO.File]::ReadAllBytes($full)) } else { $null } }
+            $sourceRows.Add(@($source, $h))
+        }
+        $inputs['evidenceSources'] = $sourceRows.ToArray()
+    }
+    $attachmentsPath = Get-Full "$folder/attachments"
+    if ([System.IO.Directory]::Exists($attachmentsPath)) {
+        $names = [string[]]@([System.IO.Directory]::GetFiles($attachmentsPath) | ForEach-Object { [System.IO.Path]::GetFileName($_) })
+        [array]::Sort($names, [System.StringComparer]::Ordinal)
+        $rows = New-Object System.Collections.Generic.List[object]
+        foreach ($name in $names) {
+            $bytes = [System.IO.File]::ReadAllBytes((Get-Full "$folder/attachments/$name"))
+            $rows.Add(@($name, (Get-Hash $bytes)))
+        }
+        $inputs['attachments'] = $rows.ToArray()
+    }
+    return Get-TextHash (ConvertTo-Canon $inputs)
+}
 function Test-Meaningful($t) { return ($t -is [string]) -and (Get-Norm $t).Length -ge 12 -and -not [regex]::IsMatch($t, '(^|[^A-Za-z0-9])(TBD|TODO|TBC)([^A-Za-z0-9]|$)', 'IgnoreCase, CultureInvariant') }
 function Get-DocNorm([string]$s) { return Get-Norm ([regex]::Replace($s, '[*`]', '')) }
 function Test-HasId([string]$doc, [string]$id) { return [regex]::IsMatch($doc, '(^|[^A-Za-z0-9_-])' + [regex]::Escape($id) + '([^A-Za-z0-9_-]|$)') }
 function Get-Shown($l) { if ($l -is [string]) { return $l } elseif ($null -eq $l) { return 'null' } elseif ($l -is [bool]) { if ($l) { return 'true' }; return 'false' } elseif (Test-Num $l) { return [string]$l }; return ConvertTo-Json -InputObject $l -Compress -Depth 20 }
 function Find-Id($list, $id) { foreach ($x in $list) { if ((Test-Obj $x) -and (Test-Str (Get-Prop $x 'id')) -and (Test-Same $x.id $id)) { return $x } }; return $null }
+function Test-BranchProven([string]$app, $evidence, [bool]$scripted, $registration) {
+    if ($app -ceq 'cdms' -and $scripted -and -not (Test-Same $registration 'active')) { return $false }
+    foreach ($e in $evidence) {
+        $system = Get-Prop $e 'system'; $component = Get-Prop $e 'component'
+        if ($app -ceq 'ui') { if ((Test-Same $system 'ui') -or (-not (Test-Has $e 'system') -and (Test-In @('javascript', 'web-resource', 'ribbon') $component))) { return $true } }
+        elseif ($app -ceq 'cdms') { if (-not (Test-In @('dab', 'ui', 'ocp', 'graphql') $system) -and -not (Test-Same $component 'dab') -and -not ((-not (Test-Has $e 'system')) -and (Test-In @('javascript', 'web-resource', 'ribbon') $component))) { return $true } }
+        elseif (-not (Test-In @('legacy-crm', 'cdms', 'ui', 'ocp', 'graphql') $system) -and ((Test-Same $system 'dab') -or -not (Test-In @('cdms-api', 'plugin', 'workflow', 'custom-activity', 'xrm-service', 'javascript', 'web-resource', 'ribbon') $component))) { return $true }
+    }
+    return $false
+}
 # Final document keys in core.js order (cdmsRefined, dabRefined, uiRefined).
 function Get-FinalKeys { return @($Bundle.readiness.finalDocs.PSObject.Properties | ForEach-Object { $_.Name }) }
 function Get-Readiness($state, $docs, [string]$pbi) {
@@ -415,15 +519,24 @@ function Get-Readiness($state, $docs, [string]$pbi) {
                         }
                         if ($broken) { $bad.Add($bid); continue }
                         $bids.Add($bidv)
-                        $ev = @(); foreach ($e in (Get-Arr (Get-Prop $b 'evidence'))) { $x = Find-Id $evidence $e; if ($null -ne $x -and -not (Test-In $excluded (Get-Prop $x 'system')) -and -not (& $isHist $x) -and (Test-Same (Get-Prop $x 'level') 'code')) { $ev += , $x } }
-                        if ((Test-Same (Get-Prop $b 'cdms') 'covered') -and $apps -contains 'cdms' -and ($ev.Count -eq 0 -or ($scripted -and -not (Test-Same $reg 'active')))) { & $add 'BRANCH_COVERAGE_UNPROVEN' 1 "$bidv/cdms" }
-                        if ((Test-Same (Get-Prop $b 'dab') 'covered') -and $apps -contains 'dab' -and @($ev | Where-Object { -not (Test-Same (Get-Prop $_ 'system') 'legacy-crm') }).Count -eq 0) { & $add 'BRANCH_COVERAGE_UNPROVEN' 1 "$bidv/dab" }
+                        $ev = @(); $branchRefs = New-Object System.Collections.ArrayList
+                        foreach ($e in (Get-Arr (Get-Prop $b 'evidence'))) {
+                            if ($branchRefs.Contains($e)) { continue }; [void]$branchRefs.Add($e)
+                            $x = Find-Id $evidence $e
+                            if ($null -eq $x) { & $add 'EVIDENCE_UNKNOWN' 1 "$bidv/$(Get-Shown $e)"; continue }
+                            if ((Test-In $excluded (Get-Prop $x 'system')) -or (& $isHist $x) -or -not (Test-Same (Get-Prop $x 'level') 'code') -or ((Get-Prop $x 'stale') -is [bool] -and (Get-Prop $x 'stale'))) { continue }
+                            $kind = Get-Prop $x 'kind'
+                            if (Test-Same $kind 'repo-file') { $h = & $fileOf (Get-Prop $x 'source'); $recorded = Get-Prop $x 'sha256'; if ($null -eq $h -or (($recorded -is [string]) -and -not (Test-Same $recorded.ToLowerInvariant() $h))) { continue } }
+                            if ((Test-Same $kind 'external') -and -not (Test-Str (Get-Prop $x 'revision'))) { continue }
+                            $ev += , $x
+                        }
+                        foreach ($k in $apps) { if ((Test-Same (Get-Prop $b $k) 'covered') -and -not (Test-BranchProven $k $ev $scripted $reg)) { & $add 'BRANCH_COVERAGE_UNPROVEN' 1 "$bidv/$k" } }
                         foreach ($k in $apps) { $cv = Get-Prop $b $k; if (-not (Test-Same $cv 'covered') -and -not (Test-Same $cv 'not-applicable')) { $key = "${k}:$bidv"; if (-not $open.Contains($key)) { $open.Add($key) } } }
                     }
                 }
                 foreach ($x in $bad) { & $add 'BRANCH_INCOMPLETE' 0 $x }
                 $hasDab = Test-Has $r 'dab'
-                if (Test-Same $action 'reuse') { foreach ($x in $open) { $k = $x.Substring(0, $x.IndexOf(':')); if ((Test-Same $k 'cdms') -or -not $hasDab) { & $add 'BRANCH_NOT_COVERED' 1 ($x.Substring($x.IndexOf(':') + 1) + '/' + $k) } } }
+                if (Test-Same $action 'reuse') { foreach ($x in $open) { $k = $x.Substring(0, $x.IndexOf(':')); if ((Test-Same $k 'cdms') -or (Test-Same $k 'ui') -or -not $hasDab) { & $add 'BRANCH_NOT_COVERED' 1 ($x.Substring($x.IndexOf(':') + 1) + '/' + $k) } } }
                 $dabv = Get-Prop $r 'dab'
                 if ((Test-Obj $dabv) -and (Test-Same (Get-Prop $dabv 'status') 'implemented')) { foreach ($x in $open) { if ($x.StartsWith('dab:', [System.StringComparison]::Ordinal)) { & $add 'DAB_BRANCH_GAP' 1 $x.Substring(4) } } }
             }
@@ -511,6 +624,7 @@ function Get-Readiness($state, $docs, [string]$pbi) {
         # Only fingerprinted when recorded, so approvals given before 4.0 stay valid.
         # Assigned inside the branches: an if-expression would unroll the one-pair array.
         if (Test-Has $state 'evidenceScope') { $part['evidenceScope'] = @(, @('evidenceScope', (Get-Fp (Get-Prop $state 'evidenceScope')))) } else { $part['evidenceScope'] = @() }
+        if (Test-Str $docs['reviewedContent']) { $part['reviewedContent'] = @(, @('reviewedContent', $docs['reviewedContent'])) } else { $part['reviewedContent'] = @() }
         foreach ($k in $Spec.approvals) {
             $m = New-Map; foreach ($n in $Spec.scopes.$k) { foreach ($pair in $part[$n]) { $m[$pair[0]] = $pair[1] } }
             $keys = [string[]]@($m.Keys); [array]::Sort($keys, [System.StringComparer]::Ordinal)
@@ -521,9 +635,11 @@ function Get-Readiness($state, $docs, [string]$pbi) {
             $a = Get-Prop (Get-Prop $state 'approvals') $k
             if (-not (Test-Obj $a) -or -not (Test-Same (Get-Prop $a 'status') 'approved') -or -not (Test-Str (Get-Prop $a 'by')) -or -not (Test-Str (Get-Prop $a 'at')) -or -not (Test-Str (Get-Prop $a 'evidence'))) { if (@($Spec.requiredApprovals) -contains $k) { & $add 'APPROVAL_PENDING' 3 $k }; continue }
             $b = Get-Prop $a 'basis'; $bad = -not (Test-Obj $b) -or -not @($b.PSObject.Properties).Count
-            if (-not $bad) { foreach ($p in $b.PSObject.Properties) { if (-not ($p.Value -is [string]) -or $p.Value -cnotmatch '\A[0-9a-f]{16}\z') { $bad = $true } } }
+            if (-not $bad) { foreach ($p in $b.PSObject.Properties) { $pattern = if ($p.Name -ceq 'reviewedContent') { '\A[0-9a-f]{64}\z' } else { '\A[0-9a-f]{16}\z' }; if (-not ($p.Value -is [string]) -or $p.Value -cnotmatch $pattern) { $bad = $true } } }
             if ($bad) { & $add 'APPROVAL_UNBOUND' 3 $k; continue }
-            $cur = $review[$k].basis; $changed = New-Object System.Collections.Generic.List[string]; $added = New-Object System.Collections.Generic.List[string]; $removed = New-Object System.Collections.Generic.List[string]
+            $cur = $review[$k].basis
+            if ($k -ceq 'user' -and -not (Test-Has $b 'reviewedContent')) { $legacy = New-Map; foreach ($key in $cur.Keys) { if ($key -cne 'reviewedContent') { $legacy[$key] = $cur[$key] } }; $cur = $legacy }
+            $changed = New-Object System.Collections.Generic.List[string]; $added = New-Object System.Collections.Generic.List[string]; $removed = New-Object System.Collections.Generic.List[string]
             foreach ($key in $cur.Keys) { if (-not (Test-Has $b $key)) { $added.Add($key) } elseif (-not (Test-Same (Get-Prop $b $key) $cur[$key])) { $changed.Add($key) } }
             foreach ($key in (Get-Keys $b)) { if (-not $cur.ContainsKey($key)) { $removed.Add($key) } }
             $diff = @(); foreach ($w in @(@('changed', $changed), @('added', $added), @('removed', $removed))) { if ($w[1].Count) { $diff += $w[0] + ' ' + ($w[1] -join ', ') } }
@@ -558,7 +674,7 @@ function Get-Readiness($state, $docs, [string]$pbi) {
     $claimed = if ($valid -and (Test-In $S (Get-Prop $state 'status'))) { $state.status } else { '' }
     if ($claimed -and [array]::IndexOf($S, $claimed) -gt (& $capOf)) { & $add 'STATUS_OVERCLAIMED' 3 $claimed }
     $computed = $S[(& $capOf)]
-    return [ordered]@{ schemaVersion = 2; pbi = $pbi; claimedStatus = $claimed; computedStatus = $computed; finalAllowed = ($computed -ceq 'Development-Ready'); issues = @($issues); review = $review }
+    return [ordered]@{ schemaVersion = 2; pbi = $pbi; claimedStatus = $claimed; computedStatus = $computed; finalAllowed = ($computed -ceq 'Development-Ready'); issues = @($issues); review = $review; reviewedContent = $docs['reviewedContent'] }
 }
 # The development target of a 5.0 intake (pbi.json with repositories); 4.x PBIs keep the 4.x path rules (same as applicationOf in core.js).
 function Get-Application([string]$folder) {
@@ -583,9 +699,11 @@ function Invoke-CheckPbi {
         }
     }
     # 4.0 names are still read when the 4.1 names are absent (same as checkPbi in core.js).
-    $docs = @{ request = Read-Text "$folder/REQUEST.md"; draft = Read-Text "$folder/DRAFT-PBI.md"; refined = Read-Text "$folder/REFINED-PBI.md"; cdmsRefined = Read-Text "$folder/PBI-CDMS.md"; dabRefined = Read-Text "$folder/PBI-DAB.md"; uiRefined = Read-Text "$folder/PBI-UI.md"; application = (Get-Application $folder); decisionLog = Read-Text "$folder/DECISION-LOG.md"; files = $files }
+    $reviewedContent = Get-ReviewFingerprint $folder $files
+    $docs = @{ request = Read-Text "$folder/REQUEST.md"; draft = Read-Text "$folder/DRAFT-PBI.md"; refined = Read-Text "$folder/REFINED-PBI.md"; cdmsRefined = Read-Text "$folder/PBI-CDMS.md"; dabRefined = Read-Text "$folder/PBI-DAB.md"; uiRefined = Read-Text "$folder/PBI-UI.md"; application = (Get-Application $folder); decisionLog = Read-Text "$folder/DECISION-LOG.md"; files = $files; reviewedContent = $reviewedContent }
     foreach ($pair in @(@('cdmsRefined', 'CDMS-REFINED-PBI.md'), @('dabRefined', 'DAB-REFINED-PBI.md'))) { if ($null -eq $docs[$pair[0]]) { $docs[$pair[0]] = Read-Text "$folder/$($pair[1])" } }
     $r = Get-Readiness $state $docs $folder.Split('/')[-1]
+    if (-not (Test-SameText (Read-Text "$folder/pbi-state.json") $raw) -or -not (Test-Same (Get-ReviewFingerprint $folder) $reviewedContent)) { throw 'PBI changed while it was being reviewed. Reload the review and try again.' }
     if ($Json) { [Console]::Out.WriteLine((ConvertTo-Json -InputObject $r -Depth 6 -Compress)) }
     else {
         Write-Host "Readiness for $($r.pbi)"; Write-Host "Computed status: $($r.computedStatus)$(if ($r.claimedStatus) { " (claimed: $($r.claimedStatus))" })"
@@ -607,7 +725,7 @@ function Invoke-RefreshEvidence {
     if ($null -ne $raw) {
         try { $index = $raw | ConvertFrom-Json } catch { throw "$($Bundle.knowledgeIndex) is not valid JSON. Fix it before refreshing." }
         if (-not (Test-Obj $index) -or -not (Test-One (Get-Prop $index 'schemaVersion')) -or -not ((Get-Prop $index 'entries') -is [array])) { throw "Unsupported $($Bundle.knowledgeIndex); expected schemaVersion 1 with an entries list." }
-        $changed = $false
+        $changed = $false; $hashes = New-Map
         foreach ($e in $index.entries) {
             if (-not (Test-Obj $e)) { continue }
             $id = if ((Get-Prop $e 'id') -is [string]) { $e.id } elseif ((Get-Prop $e 'path') -is [string]) { $e.path } else { '' }
@@ -615,9 +733,13 @@ function Invoke-RefreshEvidence {
             $p = Get-Prop $e 'path'
             if (-not (Test-SafePath $p)) { $out.skipped += $id; continue }
             $out.checked = $out.checked + 1
-            $full = Get-Full $p
-            if ([System.IO.Directory]::Exists($full)) { throw "Evidence path is a folder, not a file: $p" }
-            $h = if ([System.IO.File]::Exists($full)) { Get-Hash ([System.IO.File]::ReadAllBytes($full)) } else { $null }
+            if ($hashes.ContainsKey($p)) { $h = $hashes[$p] }
+            else {
+                $full = Get-Full $p
+                if ([System.IO.Directory]::Exists($full)) { throw "Evidence path is a folder, not a file: $p" }
+                $h = if ([System.IO.File]::Exists($full)) { Get-Hash ([System.IO.File]::ReadAllBytes($full)) } else { $null }
+                $hashes[$p] = $h
+            }
             $isStale = ((Get-Prop $e 'stale') -is [bool]) -and (Get-Prop $e 'stale')
             if ($null -eq $h) {
                 if (-not $isStale -or -not (Test-Same (Get-Prop $e 'staleReason') 'missing')) { Set-Prop $e 'stale' $true; Set-Prop $e 'staleReason' 'missing'; $changed = $true }

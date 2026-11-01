@@ -1,4 +1,4 @@
-# Akzo SDD PBI Builder 5.0: user guide
+# Akzo SDD PBI Builder 5.2.1: user guide
 
 You do not need to know the templates, the code or terms such as plugins or workflows. Describe
 what you need; the builder asks only for business decisions.
@@ -43,18 +43,22 @@ PBI, New PBI, Start Development, Implement PBI). The agent asks for what is miss
 message, then the legacy repository and the development target. Start Development and
 Implement PBI prepare the PBI; they never change application code.
 
-The agent then investigates on its own: it reads the actual code (never only file names or older
-analysis documents), marks each finding Verified, Proposed, Unverified or Contradicted, and
-reports progress at milestones.
+The agent then investigates on its own: it reads relevant accessible code (never only file names
+or older analysis documents), reports inaccessible sources, marks each finding Verified, Proposed,
+Unverified or Contradicted, and reports progress at milestones.
 
 ## Answer business questions
 After investigating, the agent asks only what the request and the code cannot settle, all
 together in one **decision review**. A rule your request already states is recorded as a decision
 without a question. Each question shows:
 - what happens today, what the requirement expects and what is missing;
-- its recommendation and why;
-- numbered choices: the recommended option, alternatives, then Custom answer and Decide later;
-- a ready-to-use answer and the implementation impact with evidence.
+- an evidence-backed recommendation and why, or **NO RECOMMENDATION** when support is insufficient;
+- choices A–D where appropriate, plus Custom answer and Decide later;
+- business and technical impacts and the supporting references.
+
+The form checks cited local files and any recorded content hashes before displaying a
+recommendation. It shows when a local hash is absent or an external source's current freshness
+cannot be checked. Multiple questions sharing a local source use one read per question screen.
 
 Conflicting acceptance criteria are always asked about, never resolved silently.
 
@@ -116,10 +120,13 @@ generated files and refused if a file changed since. Where the browser supports 
 where to save. Browsers cannot open File Explorer, so the window shows the PBI folder instead.
 
 Your approval is the approval of the PBI draft only. PO/BA, security, architecture or technical
-sign-off that your organization requires is a separate step; the documents say it is not recorded
-by this tool. A later change to anything you reviewed makes the approval stale; review and approve
-again. The final PBIs carry local draft identifiers; the tool never creates or publishes Azure
-DevOps work items.
+sign-off that your organization requires is a separate step. A material change to the reviewed
+requirements, decisions, documents, attachments or recorded local evidence-source contents makes
+a snapshot-bound approval stale; review and approve again. Document line endings and metadata JSON
+layout are cosmetic. Source and attachment bytes are checked exactly, so even a formatting-only
+edit to either requires review again. External evidence is bound to its recorded revision, but
+the form cannot verify that repository's current contents. The final PBIs carry local draft
+identifiers; the tool never creates or publishes Azure DevOps work items.
 
 ## Additional implementation references
 The development target already decides which repositories are analyzed. Under **Add

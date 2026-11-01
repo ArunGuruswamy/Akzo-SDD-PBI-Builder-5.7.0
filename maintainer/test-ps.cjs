@@ -99,6 +99,13 @@ const loose=async d=>JSON.parse(await fs.readFile(d,'utf8'));
   assert.deepEqual(after,[P.BASELINES['2.0-original'].path,P.KNOWLEDGE,P.BASE+'/sources.yaml','playbook/pbis/pbi-1/DECISION-LOG.md'].sort());
   assert.ok(Object.keys(await tree(d)).some(p=>p.endsWith('/'+P.AGENT)&&p.includes('/backups/uninstall-')));
  });
+ await test('PowerShell installer refuses a repository-relative junction without writing outside the repository',async()=>{
+  const d=await repo(),outside=await repo(),junction=path.join(d,'playbook/pbi-builder');
+  await fs.mkdir(path.dirname(junction),{recursive:true});await fs.writeFile(path.join(outside,'keep.txt'),'outside data');
+  await fs.symlink(outside,junction,'junction');const before=await tree(outside);
+  const r=ps(pkg,['-RepoPath',d,'-ProjectName','Junction test','-Ide','vscode','-Role','dab']);
+  assert.equal(r.code,2,r.err+r.out);assert.match(r.err+r.out,/junction or reparse point/);assert.deepEqual(await tree(outside),before);
+ });
  await test('readiness: PowerShell -Action CheckPbi reports exactly what core reports, for every shared case',async()=>{
   const d=await repo(),root=new DirectoryHandle(d),folder='playbook/pbis/'+CASE_PBI;
   const {cases}=await shared.load(P);
