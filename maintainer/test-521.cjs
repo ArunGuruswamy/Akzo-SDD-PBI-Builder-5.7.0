@@ -146,6 +146,11 @@ test('PowerShell and JavaScript agree on UI coverage, source snapshots and cosme
  const run=async()=>{const r=cp.spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-File',path.join(pkg,'Install-PBIBuilder.ps1'),'-RepoPath',dir,'-Action','CheckPbi','-Pbi',shared.PBI,'-Json'],{encoding:'utf8',env,timeout:120000});
   assert.ok(r.status===0||r.status===3,r.stderr);const js=await P.checkPbi(root,folder);
   assert.deepEqual(JSON.parse(r.stdout),js);return js;};
+ const originalMetadata=await P.read(root,folder+'/pbi.json');
+ for(const [application,repositories] of [['UI Only',{ui:{path:'.'}}],['DAB + UI',{dab:{path:'.'}}],['unknown-target',[]]]){
+  await P.write(root,folder+'/pbi.json',JSON.stringify({...JSON.parse(originalMetadata),application,repositories}));await run();
+ }
+ await P.write(root,folder+'/pbi.json',originalMetadata);
  const before=await run();assert.deepEqual(issues(before,'BRANCH_COVERAGE_UNPROVEN'),['BR-1.Y/ui']);
  const request=await P.read(root,folder+'/REQUEST.md');
  await P.write(root,folder+'/REQUEST.md',request.replace(/\r?\n/g,'\r\n'));

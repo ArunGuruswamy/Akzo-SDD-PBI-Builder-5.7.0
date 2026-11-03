@@ -133,6 +133,21 @@ const loose=async d=>JSON.parse(await fs.readFile(d,'utf8'));
   js=await run();assert.deepEqual(js.stale,['K-1','K-2','K-4']);
   js=await run();assert.equal(js.written,false);
  });
+ await test('evidence dependencies: PowerShell and core mark the same findings stale when a dependsOn file changes',async()=>{
+  const index={schemaVersion:1,entries:[{id:'K-A',path:'src/a.cs',dependsOn:['src/contract.cs','src/spaced dep.cs','../outside.cs','src/contract.cs',7]},{id:'K-B',path:'src/b.cs',dependsOn:['src/gone.cs']},{id:'K-C',path:'src/c.cs'}]};
+  const seed=async d=>{await fs.mkdir(path.join(d,'src'),{recursive:true});for(const [n,t] of [['a.cs','class A {}'],['contract.cs','interface C {}'],['spaced dep.cs','x'],['b.cs','class B {}'],['c.cs','class C {}']])await fs.writeFile(path.join(d,'src',n),t);const root=new DirectoryHandle(d);await P.write(root,P.KNOWLEDGE,JSON.stringify(index,null,2));return root;};
+  const a=await repo(),b=await repo(),ra=await seed(a);await seed(b);
+  const run=async()=>{const js=await P.refreshEvidence(ra),r=ps(pkg,['-RepoPath',b,'-Action','RefreshEvidence','-Json']);assert.ok(r.code===0||r.code===3,r.err);assert.deepEqual(JSON.parse(r.out),js);assert.deepEqual(await loose(path.join(b,P.KNOWLEDGE)),await loose(path.join(a,P.KNOWLEDGE)));return js;};
+  let js=await run();assert.deepEqual(js.reusable,['K-A','K-B','K-C']);assert.deepEqual(js.stale,[]);
+  js=await run();assert.equal(js.written,false);
+  for(const d of [a,b])await fs.writeFile(path.join(d,'src/contract.cs'),'interface C { int Added(); }');
+  js=await run();assert.deepEqual(js.stale,['K-A']);assert.deepEqual(js.reusable,['K-B','K-C']);
+  const saved=JSON.parse(await fs.readFile(path.join(a,P.KNOWLEDGE),'utf8')).entries[0];assert.equal(saved.staleReason,'dependency-changed');assert.deepEqual(Object.keys(saved.dependencyHashes),['src/contract.cs','src/spaced dep.cs']);
+  // A dependency that disappears also invalidates the finding (the agent first re-verified it and cleared the flag).
+  for(const d of [a,b]){const f=path.join(d,P.KNOWLEDGE),ix=JSON.parse(await fs.readFile(f,'utf8'));delete ix.entries[0].stale;delete ix.entries[0].staleReason;await fs.writeFile(f,JSON.stringify(ix,null,2));await fs.rm(path.join(d,'src/spaced dep.cs'));}
+  js=await run();assert.deepEqual(js.stale,['K-A']);
+  assert.equal(JSON.parse(await fs.readFile(path.join(a,P.KNOWLEDGE),'utf8')).entries[0].staleReason,'dependency-changed');
+ });
  await test('unsupported bundle schema, unknown tokens and unresolved placeholders fail clearly without writing',async()=>{
   const bad=async(name,mutate)=>{const dir=path.join(tmp,name);await fs.mkdir(dir);for(const f of ['Install-PBIBuilder.ps1','Akzo-SDD-PBI-Builder.html'])await fs.copyFile(path.join(pkg,f),path.join(dir,f));const b=P.bundle(assets);mutate(b);await fs.writeFile(path.join(dir,'pbi-builder-bundle.json'),JSON.stringify(b));return dir;};
   const d=await repo(),args=['-RepoPath',d,'-ProjectName','X','-Ide','vscode','-Role','dab'];
@@ -226,6 +241,48 @@ const loose=async d=>JSON.parse(await fs.readFile(d,'utf8'));
   await fs.writeFile(path.join(b,P.MANIFEST),JSON.stringify({schemaVersion:1,packageVersion:'4.2.0',files:{[P.CONFIG]:await P.hash(oldText)}},null,2));
   const r=ps(pkg,['-RepoPath',b,'-AllowUpdates']);assert.equal(r.code,0,r.err+r.out);
   const ta=await tree(a),tb=await tree(b);assert.equal(tb[P.CONFIG],ta[P.CONFIG]);assert.equal(tb[P.BASE+'/sources.yaml'],ta[P.BASE+'/sources.yaml']);assert.equal(JSON.parse(tb[P.CONFIG]).sources.ui,'');
+ });
+ await test('repository paths persist across install, reinstall, upgrade, repair and restart; configured is kept apart from verified read access',async()=>{
+  // A multi-root layout: the selected repository, siblings with spaces and non-ASCII names, one empty, one missing, one absolute.
+  const base=path.join(tmp,'multi root ಕ'),main=path.join(base,'Main Repo'),leg=path.join(base,'Legacy Repo'),ui=path.join(base,'UI Repo'),dab=path.join(base,'DAB Repo');
+  for(const [d,f,t] of [[main,'src/Handler.cs','class Handler {}'],[leg,'Plugins/Plugin ಕ.cs','class P {}'],[ui,'src/app/app.module.ts','export class M {}'],[ui,'node_modules/x/index.js','x'],[dab,'README.txt','no source here']]){await fs.mkdir(path.dirname(path.join(d,f)),{recursive:true});await fs.writeFile(path.join(d,f),t);}
+  await fs.mkdir(path.join(main,'.git'),{recursive:true});
+  const uiAbs=ui.replace(/\\/g,'/'),base1=['-RepoPath',main,'-ProjectName','Multi Root','-Ide','vscode','-Role','cdms'];
+  const cfg=()=>loose(path.join(main,P.CONFIG)),yaml=()=>fs.readFile(path.join(main,P.BASE,'sources.yaml'),'utf8');
+  // Fresh install: values are saved to the canonical config, synchronized to sources.yaml and byte-identical to the form's output.
+  let r=ps(pkg,[...base1,'-LegacySource','../Legacy Repo','-UiSource',uiAbs,'-DabSource','../DAB Repo','-OtherSource','Portal=../Portal Missing']);assert.equal(r.code,0,r.err+r.out);
+  let c=await cfg();assert.deepEqual(c.sources,{legacy:'../Legacy Repo',dab:'../DAB Repo',cdms:'.',ui:uiAbs});assert.deepEqual(c.others,[{name:'Portal',path:'../Portal Missing'}]);
+  const js=await repo();await jsInstall(js,{projectName:'Multi Root',ide:'vscode',role:'cdms',includeReferences:false,sources:{legacy:'../Legacy Repo',dab:'../DAB Repo',cdms:'',ui:uiAbs},others:[{name:'Portal',path:'../Portal Missing'}]});
+  assert.equal(await fs.readFile(path.join(js,P.CONFIG),'utf8'),await fs.readFile(path.join(main,P.CONFIG),'utf8'));assert.equal(await fs.readFile(path.join(js,P.BASE,'sources.yaml'),'utf8'),await yaml());
+  assert.ok((await yaml()).includes('../Legacy Repo')&&(await yaml()).includes(uiAbs));
+  // Configured is not verified: the install report says what was actually read.
+  const row=(out,key)=>new RegExp('^  '+key.replace(/[:]/g,'\\$&')+'\\s+(\\S+)\\s+(.*)$','m').exec(out);
+  assert.match(r.out,/Source access \(configured paths, then what was actually read/);
+  assert.deepEqual([['legacy','readable'],['cdms','readable'],['ui','readable'],['dab','configured-inaccessible'],['other:Portal','configured-inaccessible']].map(([k])=>row(r.out,k)?.[1]),['readable','readable','readable','configured-inaccessible','configured-inaccessible']);
+  assert.match(row(r.out,'dab')[2],/No readable source file found under .*DAB Repo/);assert.match(row(r.out,'other:Portal')[2],/Folder not found: .*Portal Missing/);assert.match(row(r.out,'legacy')[2],/Read Plugins\/Plugin ಕ\.cs under .*Legacy Repo/);
+  assert.ok(!/node_modules/.test(row(r.out,'ui')[2]),'dependency folders are not searched');assert.match(row(r.out,'cdms')[2],/Read src\/Handler\.cs/);
+  // Reinstall with only the editor changed keeps every saved path; the agent is regenerated with them.
+  r=ps(pkg,['-RepoPath',main,'-Ide','visualstudio','-AllowUpdates']);assert.equal(r.code,0,r.err+r.out);c=await cfg();assert.equal(c.ide,'visualstudio');assert.deepEqual(c.sources,{legacy:'../Legacy Repo',dab:'../DAB Repo',cdms:'.',ui:uiAbs});assert.equal(c.others.length,1);
+  assert.ok((await fs.readFile(path.join(main,P.AGENT),'utf8')).includes('tools: ["readfile"'),'agent regenerated for the new editor');
+  // An empty value never replaces a saved path.
+  r=ps(pkg,['-RepoPath',main,'-LegacySource','','-AllowUpdates']);assert.equal(r.code,0,r.err+r.out);assert.match(r.out+r.err,/-LegacySource was empty, so the saved legacy path was kept/);assert.equal((await cfg()).sources.legacy,'../Legacy Repo');
+  // Clearing is explicit, and a change of role says what happened to the old role's path.
+  r=ps(pkg,['-RepoPath',main,'-ClearSource','ui','-AllowUpdates']);assert.equal(r.code,0,r.err+r.out);assert.equal((await cfg()).sources.ui,'');assert.equal((await cfg()).sources.legacy,'../Legacy Repo');
+  r=ps(pkg,['-RepoPath',main,'-UiSource',uiAbs,'-Role','legacy','-AllowUpdates']);assert.equal(r.code,0,r.err+r.out);assert.match(r.out+r.err,/role of this repository changed from cdms to legacy/);c=await cfg();assert.equal(c.sources.legacy,'.');assert.equal(c.sources.cdms,'');assert.equal(c.sources.ui,uiAbs);
+  r=ps(pkg,['-RepoPath',main,'-Role','cdms','-LegacySource','../Legacy Repo','-AllowUpdates']);assert.equal(r.code,0,r.err+r.out);c=await cfg();assert.deepEqual(c.sources,{legacy:'../Legacy Repo',dab:'../DAB Repo',cdms:'.',ui:uiAbs});
+  // Invalid path characters are refused by both installers with the same message, and nothing is written.
+  const before=await tree(main);r=ps(pkg,['-RepoPath',main,'-DabSource','bad|path','-AllowUpdates']);assert.equal(r.code,2);assert.match(r.err,/Source paths cannot contain < > " \| \? \* \(not valid in Windows paths\)\./);assert.deepEqual(await tree(main),before);
+  assert.throws(()=>P.normalizeConfig({projectName:'X',role:'dab',sources:{legacy:'a<b'}}),/Source paths cannot contain < > " \| \? \* \(not valid in Windows paths\)\./);
+  assert.throws(()=>P.normalizeConfig({projectName:'X',role:'dab',sources:{},others:[{name:'O',path:'x?y'}]}),/cannot contain/);
+  // Repair restores a deleted managed file from the saved config and ignores setting parameters; paths survive a repair.
+  await fs.rm(path.join(main,P.AGENT));r=ps(pkg,['-RepoPath',main,'-Action','Repair','-LegacySource','../Elsewhere']);assert.equal(r.code,0,r.err+r.out);assert.match(r.out+r.err,/Repair uses the installed config\.json/);
+  assert.equal((await cfg()).sources.legacy,'../Legacy Repo');assert.ok((await fs.stat(path.join(main,P.AGENT))).isFile());assert.match(r.out,/Source access/);
+  // Verify (a new process: a restart) reports configured-but-not-verified honestly when a folder disappears; the saved path stays.
+  await fs.rename(ui,ui+' moved');r=ps(pkg,['-RepoPath',main,'-Action','Verify']);assert.equal(r.code,0,r.err+r.out);
+  assert.equal(row(r.out,'ui')[1],'configured-inaccessible');assert.match(row(r.out,'ui')[2],/Folder not found/);assert.equal((await cfg()).sources.ui,uiAbs);assert.equal(row(r.out,'legacy')[1],'readable');
+  // An existing multi-root workspace file marks a readable source outside it.
+  await fs.rename(ui+' moved',ui);await fs.writeFile(path.join(main,'Multi.code-workspace'),'{\n  // approved folders\n  "folders": [ { "path": "." }, { "path": "../Legacy Repo" }, ],\n}\n');
+  r=ps(pkg,['-RepoPath',main,'-Action','Verify']);assert.equal(r.code,0,r.err+r.out);assert.ok(!/outside the workspace file/.test(row(r.out,'legacy')[2]));assert.match(row(r.out,'ui')[2],/outside the workspace file: agent file tools may not reach it/);assert.equal(row(r.out,'ui')[1],'readable');
  });
  console.log(`\n${count} PowerShell installer checks passed (Windows PowerShell, real execution policy, real files).`);
  await fs.rm(tmp,{recursive:true,force:true});

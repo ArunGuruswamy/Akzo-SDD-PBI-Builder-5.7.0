@@ -1,5 +1,71 @@
 # Changelog
 
+## 5.3.0 - 1 November 2026
+
+Reliability, evidence and performance repairs to the existing builder; no new dependency, no network
+call, no telemetry. Source repositories are never modified.
+
+- Installer: repository paths persist across install, reinstall, upgrade, repair and restart. An empty
+  value never replaces a saved path (`-ClearSource` removes one on purpose), a changed role reports what
+  happened to the old role's path, and paths with `< > " | ? *` are refused identically by the form and
+  PowerShell. Install, Repair and Verify print "Source access" (readable, configured-inaccessible,
+  not-configured), keeping configured paths apart from verified read access, with absolute paths, spaces
+  and an existing `.code-workspace` file handled. The setup window's "Repair / configure..." dialog warns
+  about missing folders before saving.
+- Workflow router: the agent opens with a compact router (seven workflows, each with its guides and a
+  "Done when") and loads only the guide the current step needs. No role menus, introductions or
+  per-role approval gates.
+- Minimum Sufficient Evidence: `gaps[].impact` (BLOCKING, WARNING, INFORMATIONAL) and
+  `evidence[].verification` (VERIFIED, ASSUMED, UNAVAILABLE). Only BLOCKING gaps (or a gap without an
+  impact, as before) hold a PBI at Needs Evidence; ASSUMED and UNAVAILABLE evidence never proves a claim.
+  Warnings are returned by the readiness check, shown beside blockers at review, in the collapsed
+  evidence panel and in the generated Markdown, JSON and DOCX. JavaScript and PowerShell stay
+  byte-identical (shared readiness cases).
+- Repository intelligence: Discover sources is incremental (unchanged solutions and projects are reused
+  by size and modified time and not reread; identical results are not rewritten), records known entry
+  points and the `.git` branch, commit and remote (credentials removed), and writes
+  `knowledge/FILE-INDEX.txt`, a source file-name index without build output. Evidence index entries
+  support `dependsOn`: a change to a listed file or its disappearance marks the finding stale
+  (`dependency-changed`); Refresh evidence reports `reusable` findings. PowerShell matches JavaScript.
+- Shared UI once: `planAnalysis` builds the scan plan for the chosen target (the Angular UI once, only
+  backend differences per backend, a differences-only pass when UI identities differ) and Create PBI
+  records it in `pbi.json`, `REQUEST.md` and the start prompt. The agent keeps a "Shared UI flow map" and an
+  "Implementation difference map".
+- Metrics: `PBI.measure` counts file opens, repeated opens, bytes read, writes, skipped writes and
+  elapsed time. The form shows them under a collapsed "Run details". Model tokens and tool calls come from
+  the chat host and are not claimed.
+- Form: a journey bar (Configure repositories, Enter PBI, Analyze existing flow, Answer business
+  questions, Review, Approve and Generate) follows saved files; no second UI was added.
+- Tests: `test-530.cjs`, `test-e2e.cjs` (real installer, real files, multi-repository workspace),
+  new installer, evidence-dependency and readiness parity cases, UI assertions, `benchmark-530.cjs`
+  against the frozen 5.2.2 core, and a recorded real-browser run of the full workflow.
+- Housekeeping: `update-fixture.cjs` rebuilds `dom-fixture.json` without Python.
+- Chat-first workflow: the installed Copilot agent handles intake, questions, review and explicit
+  approval; the HTML form is an optional alternative for setup, evidence inspection and downloads.
+  The VS Code agent can invoke the installer `ApproveAndGenerate` action using the latest
+  reviewed-content fingerprint. The installer repeats readiness and sensitive-content checks,
+  verifies Markdown/JSON/DOCX output and restores prior files if generation fails. No Node runtime
+  is needed by end users.
+
+## 5.2.2 - 1 November 2026
+
+- Existing question panel now opens as one native decision modal with radio
+  options, evidence, recommendations, custom answers and Decide Later. Grouped
+  Save Answers, Save Draft / Decide Later and Cancel use the existing engine.
+- Locally verified recommendations may be preselected, never auto-approved.
+  Drafts remain unapproved; explicit answers update canonical state and the
+  existing decision log with history and stale-popup protection.
+- Material evidence changes reopen affected answers and retain prior approval
+  provenance. Repository switches clear modal sessions; one final approval
+  remains the normal generation gate.
+- Agent guidance uses symbol-first source discovery, actual access limitations,
+  and exact existing-folder resume without inventing missing decisions.
+- Legacy intake target labels and pbiNumber remain discoverable without rewriting
+  original intake. Node build fallback supports machines without Python.
+- Grouped workflow tests and native browser desktop/mobile checks cover the popup.
+  Browser tests use an isolated filesystem fixture, not live business approvals.
+  Native folder selection and external source freshness still need user/tool access.
+
 ## 5.2.1 — 1 November 2026
 
 Targeted approval, evidence, UI coverage and final-artifact corrections.

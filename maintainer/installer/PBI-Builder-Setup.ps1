@@ -110,7 +110,7 @@ $list = New-Object System.Windows.Forms.ListBox -Property @{ Left = 12; Top = 72
 $add = New-Object System.Windows.Forms.Button -Property @{ Left = 642; Top = 72; Width = 130; Height = 30; Text = 'Add repository...' }
 $addPath = New-Object System.Windows.Forms.Button -Property @{ Left = 642; Top = 108; Width = 130; Height = 30; Text = 'Add by path...' }
 $forget = New-Object System.Windows.Forms.Button -Property @{ Left = 642; Top = 144; Width = 130; Height = 30; Text = 'Remove from list' }
-$sourcesButton = New-Object System.Windows.Forms.Button -Property @{ Left = 642; Top = 180; Width = 130; Height = 30; Text = 'Repositories...' }
+$sourcesButton = New-Object System.Windows.Forms.Button -Property @{ Left = 642; Top = 180; Width = 130; Height = 30; Text = 'Repair / configure...' }
 $ideLabel = New-Object System.Windows.Forms.Label -Property @{ Left = 12; Top = 222; Width = 200; Text = 'For a first install - Editor:' }
 $ideBox = New-Object System.Windows.Forms.ComboBox -Property @{ Left = 215; Top = 219; Width = 170; DropDownStyle = 'DropDownList' }
 [void]$ideBox.Items.AddRange(@('Visual Studio 2026', 'VS Code')); $ideBox.SelectedIndex = $(if ($Ide -eq 'vscode') { 1 } else { 0 })
@@ -201,7 +201,20 @@ $sourcesButton.Add_Click({
         $hint = New-Object System.Windows.Forms.Label -Property @{ Left = 12; Top = $y + 172; Width = 660; Height = 32; ForeColor = [System.Drawing.Color]::DimGray; Text = 'Each PBI picks its legacy repository and development target; the target decides which of these are implemented in and which are read-only references. Save previews the change and asks before writing.' }
         $save = New-Object System.Windows.Forms.Button -Property @{ Left = 480; Top = $y + 210; Width = 90; Height = 28; Text = 'Save' }
         $cancel = New-Object System.Windows.Forms.Button -Property @{ Left = 580; Top = $y + 210; Width = 90; Height = 28; Text = 'Cancel'; DialogResult = 'Cancel' }
-        $save.Add_Click({ $d.DialogResult = 'OK'; $d.Close() })
+        $save.Add_Click({
+                # Configured is not verified: warn about invalid or missing folders, but allow saving (they may exist on another machine).
+                $problems = @()
+                $entries = @(foreach ($k in 'legacy', 'cdms', 'dab', 'ui') { if ($boxes[$k].Enabled) { [pscustomobject]@{ label = $Roles[$k]; path = $boxes[$k].Text.Trim().Trim('"') } } }) +
+                @($others.Text -split "`r?`n" | Where-Object { $_.Trim() -and $_ -match '=' } | ForEach-Object { [pscustomobject]@{ label = ($_ -split '=', 2)[0].Trim(); path = ($_ -split '=', 2)[1].Trim().Trim('"') } })
+                foreach ($e in $entries) {
+                    if (-not $e.path) { continue }
+                    if ($e.path -match '[<>"|?*]') { $problems += "$($e.label): the path has characters Windows does not allow ($($e.path))"; continue }
+                    $full = if ([System.IO.Path]::IsPathRooted($e.path)) { $e.path } else { Join-Path $p ($e.path.Replace('/', '\')) }
+                    if (-not (Test-Path -LiteralPath $full -PathType Container)) { $problems += "$($e.label): folder not found ($($e.path))" }
+                }
+                if ($problems.Count -and [System.Windows.Forms.MessageBox]::Show("Not verified:`n`n$($problems -join "`n")`n`nSave anyway? The paths stay configured, but the agent cannot read a folder that does not exist. Verify shows the result.", 'Repositories', 'YesNo', 'Warning') -ne 'Yes') { return }
+                $d.DialogResult = 'OK'; $d.Close()
+            })
         $d.Controls.AddRange(@($others, $addOther, $hint, $save, $cancel)); $d.CancelButton = $cancel
         if ($d.ShowDialog($form) -ne 'OK') { return }
         $extra = @()

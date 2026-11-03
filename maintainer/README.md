@@ -1,8 +1,10 @@
-# Akzo SDD PBI Builder 5.2.1 — maintainer notes
+# Akzo SDD PBI Builder 5.3.0 — maintainer notes
 
-Self-contained offline HTML utility plus a Windows PowerShell installer. No npm
-dependencies. End users open the compiled HTML or run Install-PBIBuilder.cmd; Node 20+
-and Python 3 are only needed to rebuild and test.
+Chat-first PBI workflow, optional offline HTML utility and Windows PowerShell
+installer. No npm dependencies. End users use the installed Copilot agent for
+intake, refinement, review and approval; the installer performs the readiness-bound
+final generation. The HTML remains available for setup and browser workflows.
+Node 20+ and Python 3 are only needed to rebuild and test.
 
 ## Files
 - `src/core.js`: the single source of generation. Agent and guide text, templates with
@@ -21,25 +23,48 @@ and Python 3 are only needed to rebuild and test.
   `baseline-v3.1.0-template.md`: their templates.
 - `fixtures/readiness-cases.cjs`: shared readiness scenarios for JS and PowerShell.
   `load(core)` records approvals with the basis the code under test prints.
+- `fixtures/workspace.cjs`: configurable multi-repository workspace (Legacy, CDMS, DAB, shared UI
+  folder names and the feature are parameters) and the `pbi-state.json` an agent would record for it;
+  used by `test-e2e.cjs` and `benchmark-530.cjs`.
+- `fixtures/baseline-v5.2.2-core.cjs`: the exact 5.2.2 generator, the reproducible baseline for
+  `benchmark-530.cjs`.
 - `fixtures/gap-cases.cjs`: the four reported 3.0.0 gaps as a 3.0.0 agent records them.
 - `fixtures/fs-handles.cjs`: File System Access handles backed by real files.
 
 ## Build, test, release
 ```
 python update-fixture.py     # only when shell.html ids/options change
+node update-fixture.cjs      # the same without Python (regenerates dom-fixture.json identically)
 python build.py              # writes Akzo-SDD-PBI-Builder.html
+node build.cjs               # equivalent standalone build when Python is unavailable
 node --check src/core.js && node --check src/ui.js
 node test-core.cjs           # 59 workflow checks on real temp files
 node test-ui.cjs             # built HTML scripts and handlers, simulated DOM (not a rendered browser)
-node --test test-521.cjs     # approval, source freshness, branch and artifact regressions
+node --test test-521.cjs test-530.cjs   # approval, evidence policy, analysis plan, incremental discovery, metrics
+node test-e2e.cjs            # install -> discover -> decisions -> resume -> approve -> generate, real files and installer
+node benchmark-530.cjs       # 5.2.2 versus current counts and times (docs/PERFORMANCE-5.3.0.md)
 node test-ps.cjs             # Windows PowerShell: byte equivalence with core.js, installer actions
 node compare-versions.cjs    # deterministic v2.1 / 3.0.0 / 3.1.0 / current evidence (MEASUREMENTS.md)
 node benchmark.cjs           # 3.1.0/current operations and 5.1.0 listing before/after (docs/PERFORMANCE.md)
 node demo-v4.cjs             # deterministic Create PBI -> questions -> validate transcript (docs/V4-DEMO.md)
 node release.cjs             # package root files + ../releases/Akzo-SDD-PBI-Builder-<version>/, verified
 ```
+`release.cjs` overwrites the root package files and the ZIP of the current version in `releases/`;
+it omits the historical `Akzo-Pbi-Builder_old/` checkout. Run it only to publish that version and
+never `require` it. Older releases stay untouched for rollback.
 `test-ps.cjs` removes the inherited process-scope execution policy override so the
 installer runs under the user's real policy. It never adds a bypass.
+
+## Chat approval and final generation
+The generated agent treats Copilot Chat as the normal interface and asks for explicit
+approval only after presenting the reviewed PBI. In VS Code it uses the configured
+`execute` tool to call `Install-PBIBuilder.ps1 -RepoPath <repository-root> -Action ApproveAndGenerate`
+with the PBI folder, user-provided approver name and current 64-character reviewed-content
+fingerprint. The installer recomputes readiness and the fingerprint, refuses
+blockers, stale content or sensitive material, records approval only after those
+checks, generates and reads back the Markdown/JSON/DOCX artifacts, then rolls back
+on failure. An IDE without command execution receives the equivalent command to run.
+This keeps final generation in the existing installer and adds no runtime dependency.
 
 ## Generation contract
 `bundle()` returns `schemaVersion: 1`, the ordered `setup` entries (rendered
@@ -93,6 +118,38 @@ hash raw bytes of repo-relative paths; external paths are skipped (agent records
 revision instead). The question panel validates referenced local files and any
 recorded hashes before displaying a recommendation, sharing one read per source
 across the displayed questions. External revision freshness is explicitly unverified.
+
+The existing panel is now a native modal (inline fallback when dialog support
+is unavailable). Select an existing PBI or return focus to the page after analysis;
+Load questions opens it explicitly. Radio options include Custom Answer and Decide
+Later. Save Answers writes the selected decisions as one backed-up state/log update;
+Save Draft preserves selections without approval; Cancel writes nothing. Only
+locally verified references can preselect a recommendation. Supporting evidence
+bases reopen materially changed answers, and local source changes during the popup
+reject saving. The chat host does not render this modal or select directories.
+Working analysis documents still need targeted agent refinement after decisions;
+the form does not invent business-rule changes from a choice.
+
+## Evidence policy, repository intelligence and metrics (5.3.0)
+- Minimum Sufficient Evidence lives in `readiness()` / `Get-Readiness` (identical by shared cases):
+  an unresolved `gaps[]` entry blocks (EVIDENCE_GAP) unless its `impact` is exactly WARNING or
+  INFORMATIONAL, in which case it becomes `warnings[]` (`GAP_OPEN`). Evidence whose `verification`
+  is present and not VERIFIED is not counted as code, registration, reach or branch proof
+  (`EVIDENCE_NOT_VERIFIED` warning); an invalid value is EVIDENCE_INCOMPLETE. `warnings` is part of the
+  report contract, after `issues`; `READINESS.verification`, `gapImpact` and `warningMessages` carry the data.
+- `discoverSources` keeps the previous map in memory: solutions and projects whose size and modified
+  time match are reused, the derived Markdown and the file index are skipped when unchanged (index by
+  recorded sha256 and size). It still lists every non-excluded directory entry; a browser cannot know
+  which folders changed without listing them. `planAnalysis` is pure and tested without files.
+- `refreshEvidence` / `-Action RefreshEvidence`: `dependsOn` paths are hashed into `dependencyHashes`; a
+  difference sets `stale` with `staleReason: dependency-changed`; `reusable` lists unchanged entries.
+- `PBI.measure(fn)` wraps `file()`, `read()`, `write()` and friends with a meter that exists only inside
+  the call (nested calls are counted separately). Bytes are counted where a body is read. `benchmark-530.cjs`
+  instruments the file handles instead, so both versions are measured by the same code.
+- Real-browser check (used for 5.3.0, recorded in VALIDATION.txt): serve the built HTML from
+  `http://127.0.0.1`, override `window.showDirectoryPicker` with `navigator.storage.getDirectory()` (the
+  origin private file system) and drive the real page with Playwright. The native folder picker is
+  the one thing this cannot exercise.
 
 ## Boundaries
 The browser cannot silently select directories, learn absolute paths, authenticate

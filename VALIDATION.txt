@@ -1,4 +1,109 @@
 Akzo SDD PBI Builder 5.1.0
+5.3.0 Chat-first follow-up
+The installed agent and user documentation now make Copilot Chat the normal
+intake, question, review and approval interface; HTML remains optional. The
+PowerShell generation action requires the configured repository root, explicit
+approver name and current reviewed-content fingerprint. Packaging also excludes
+the historical Akzo-Pbi-Builder_old checkout.
+- node maintainer/test-core.cjs: 59 workflow checks passed.
+- node maintainer/test-ui.cjs: passed the browser UI handler suite.
+- node --test maintainer/test-521.cjs maintainer/test-530.cjs: 24 passed (16 + 8),
+  including the exact generated readiness and ApproveAndGenerate commands.
+- node maintainer/test-ps.cjs: 15 PowerShell installer checks passed under the
+  real Windows PowerShell execution policy.
+- node maintainer/test-e2e.cjs: 13 end-to-end checks passed with real files and
+  the installer, including explicit Chat approval, Markdown/JSON/DOCX generation,
+  refusal of stale review and sensitive working-document content.
+- node maintainer/release.cjs: 67 package entries; Expand-Archive independently
+  extracted the package and verified all 66 file checksums. The release ZIP also
+  verified against its generated SHA-256 sidecar.
+- Root HTML, installer scripts and bundle match their canonical maintainer sources.
+Not verified: live Copilot behavior, agent discovery in Visual Studio/VS Code, or
+the VS Code execute tool in a real host; these are host-level checks.
+
+5.3.0 supplement - 1 November 2026 (Windows 11, Node 26.5.1, Windows PowerShell 5.1,
+CurrentUser execution policy; no Python on this machine, so build.cjs and update-fixture.cjs were used)
+Baseline before editing: build.cjs + test-core (59), test-ui, test-521 (16) were green on the
+uncommitted 5.2.2 tree. The 5.2.2 core is frozen as maintainer/fixtures/baseline-v5.2.2-core.cjs.
+Results of the final run on the released tree:
+- node test-core.cjs: 59 workflow checks passed (new: incremental discovery, file index,
+  entry points, reuse and edit/delete detection).
+- node test-ui.cjs: passed, including the journey bar, collapsed run details, the warnings card
+  beside blockers, the detailed evidence panel and the incremental discovery message.
+- node --test test-521.cjs test-530.cjs: 24 passed (16 + 8): non-blocking gaps reach every format,
+  BLOCKING/unspecified/unknown impact still blocks, ASSUMED/UNAVAILABLE evidence is never proof,
+  agent router and guides, analysis plan (CDMS-only, DAB-only, UI-only, combined, shared-UI identity),
+  evidence dependencies and invalidation, run meter, git identity without credentials.
+- node test-ps.cjs: 15 passed (13 earlier + evidence dependencies PowerShell/JavaScript parity +
+  repository path persistence across install, reinstall, upgrade, repair and restart, with spaces,
+  non-ASCII names, an absolute path, an empty value that keeps, -ClearSource, a role change,
+  invalid characters, a deleted managed file, a missing folder and a .code-workspace file).
+  The readiness shared cases (9 new) pass in JavaScript and are reported identically by PowerShell.
+- node test-e2e.cjs: 11 end-to-end checks passed on real files and the real installer over a
+  configurable four-repository workspace: install, upgrade, repair, restart, discovery, shared-UI
+  plan, evidence reuse and invalidation, grouped decisions (recommendation, custom answer, Decide Later),
+  resume without repeated questions, editing an earlier answer, one final approval, PBI-CDMS/DAB/UI
+  in Markdown, JSON and DOCX with identical rules, criteria, warning and approver, PowerShell/JavaScript
+  readiness parity, and approval staleness when an evidence source changes.
+- node benchmark-530.cjs (docs/PERFORMANCE-5.3.0.md): discovery rerun with nothing changed reads
+  62,743 bytes instead of 677,290 and writes 0 files instead of 2 (150-project synthetic workspace);
+  the first run is unchanged in opens and bytes read; directory listing time is unchanged. Approve &
+  Generate performs the same 94 opens (73 of an already opened file, deliberate integrity re-checks)
+  as 5.2.2. The agent entry file is 4,762 characters LARGER (36,470 -> 41,232); no token saving is claimed.
+Real browser (integrated Chromium, built HTML served from http://127.0.0.1, window.showDirectoryPicker
+replaced by the browser's origin private file system; the native folder dialog was NOT exercised):
+install (19 files, four repository paths persisted), Discover sources twice (second run wrote 0 files),
+a PBI folder with seven evidence records, the decision modal opened as a real <dialog> (matches :modal) with
+the recommended option preselected but not approved; custom answer, Decide Later and the recommended
+option were saved with DEC-2/DEC-3 in DECISION-LOG.md; after a page reload only the deferred question
+was shown ("2 already answered and preserved"); answering it, Review showed eight cards including the
+warning and the collapsed evidence panel, one Approve & Generate produced the nine files and the
+download window, the journey bar completed, PO/BA and technical approvals stayed pending.
+Unexplained during that run: on two occasions the deferred question was found answered about 10-16
+seconds after it was deferred. Instrumenting PBI.recordAnswers over a 25 s window showed the only save
+was the scripted click, while browser-trusted clicks (Cancel, a summary) appeared that the
+script had not issued, so they come from the automation host rather than the page; this was not fully
+root-caused and is listed as an open item.
+Not verified: Visual Studio/VS Code agent discovery and the live Copilot behavior of the router and
+guides (they are instructions, not code), real Azure DevOps, native folder-picker permission, the
+setup window dialogs of PBI-Builder-Setup.ps1 (parsed and ASCII-checked, not clicked), current
+external-repository freshness (the browser cannot read outside the selected folder).
+Incident during this work: running release.cjs by mistake overwrote the untracked 5.2.2 ZIP and the root
+package files with a build of the work in progress. The root files were restored byte-for-byte in size
+and git diff statistics, and releases/Akzo-SDD-PBI-Builder-5.2.2/ was rebuilt from the 5.2.2 sources
+(5.3.0 changes reverted): SHA-256 ea81932f2e68ae1f8311f7eae720867ebc793d07682fbc3cba21870c868be639. The
+original ZIP's hash was not recorded anywhere, so equality with the first 5.2.2 build cannot be proven;
+its HTML (667,731 bytes), bundle, installer and checksum file sizes match the originals exactly.
+
+5.2.2 supplement - 1 November 2026
+- Node build.cjs builds the same standalone embedding contract without Python.
+- test-core.cjs: 59 workflow checks passed.
+- test-ui.cjs: grouped radios, recommendation preselection without approval,
+  custom answers, draft/defer persistence, cancel, material evidence invalidation,
+  state/source save races and existing workflows passed.
+- node --test test-521.cjs: all 16 approval, evidence, branch and artifact
+  regressions passed, including the PowerShell/JavaScript shared cases.
+- test-ps.cjs: all 13 installer, upgrade, readiness, evidence, launcher and
+  configuration-parity checks passed. The final label/object parser change was
+  separately validated by the focused PowerShell/JavaScript parity test,
+  including preserved legacy DAB + UI metadata and invalid-target handling.
+- Native integrated-browser checks: PBI 305974's four-question modal opened;
+  one sufficiently supported recommendation preselected; draft saved no approval;
+  custom/deferred draft reopened; Cancel closed without saving; explicit grouped
+  answers persisted and answered questions disappeared. All browser writes used
+  an isolated in-memory directory fixture, never the live PBI.
+- Mobile 390x844: dialog fits viewport, scrolls and has no horizontal overflow.
+  Desktop 1280x900 interactions and screenshots were checked.
+- Native Decide Later exposed a real-select option mismatch; fixed and retested.
+- Native folder-picker permission and current external-source freshness cannot
+  be automated by the standalone form. Open local HTML in desktop Edge/Chrome,
+  select the existing repository root, and use Continue PBI / Load questions.
+- PBI 305974 original intake and all four acceptance criteria remain unchanged.
+  Only DEC-1 exists in the live PBI; no missing DEC-2/DEC-3 were reconstructed.
+  All four source roots are readable; 17 source records have content fingerprints.
+  Missing service/CRM activation/audit/SDK evidence prevents analysis completion.
+
+Historical 5.1.0 validation follows unchanged.
 Validation date: 31 October 2026 (Windows 11, Node 20.20.2, Python 3.13.7,
 Windows PowerShell 5.1.22621.6133, CurrentUser execution policy RemoteSigned)
 

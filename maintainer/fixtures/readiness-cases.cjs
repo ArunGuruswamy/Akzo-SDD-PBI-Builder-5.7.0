@@ -181,6 +181,15 @@ async function load(P){
  out.at(-1).state={schemaVersion:3};
  await c('malformed records are drafts, not crashes',s=>{s.rules.push('oops',{id:'BR-1',rev:'1'});s.acceptanceCriteria.push({id:'AC-9',rev:1,type:'odd',rules:[]});s.evidence.push(7);s.questions=[null];s.paths.cdms='yes';s.approvals=null;s.status='Draft';},
   {expect:'Draft',codes:['DUPLICATE_ID','PATH_SCOPE_MISSING','PATH_CONFLICT','PATH_CONFLICT','RULE_INCOMPLETE','RULE_INCOMPLETE','AC_INCOMPLETE','EVIDENCE_INCOMPLETE','APPROVAL_PENDING']});
+ await c('unresolved gap without impact still blocks (compatible default)',s=>{s.rules[0].gaps=[{id:'GAP-1',description:'Plugin step enablement unknown',status:'open'}];},{rebind:true,expect:'Needs Evidence',codes:['EVIDENCE_GAP',...OVER],refs:['BR-1']});
+ await c('WARNING and INFORMATIONAL gaps do not block readiness',s=>{s.rules[0].gaps=[{id:'GAP-1',description:'Historical audit trail side effect unverified',status:'open',impact:'INFORMATIONAL'},{id:'GAP-2',description:'Optional metadata sync unverified',status:'open',impact:'WARNING'}];},{rebind:true,expect:'Development-Ready',codes:[]});
+ await c('BLOCKING gap blocks beside a warning gap',s=>{s.rules[0].gaps=[{id:'GAP-1',description:'Registration unknown',status:'open',impact:'BLOCKING'},{id:'GAP-2',description:'Optional',status:'open',impact:'WARNING'}];},{rebind:true,expect:'Needs Evidence',codes:['EVIDENCE_GAP',...OVER],refs:['BR-1']});
+ await c('unknown impact value is treated as BLOCKING',s=>{s.rules[0].gaps=[{id:'GAP-1',description:'Registration unknown',status:'open',impact:'LOW'}];},{rebind:true,expect:'Needs Evidence',codes:['EVIDENCE_GAP',...OVER],refs:['BR-1']});
+ await c('resolved gaps are ignored whatever their impact',s=>{s.rules[0].gaps=[{id:'GAP-1',description:'Done',status:'resolved',impact:'BLOCKING'}];},{rebind:true,expect:'Development-Ready',codes:[]});
+ await c('ASSUMED evidence is not proof of an existing owner',s=>{s.evidence[0].verification='ASSUMED';},{rebind:true,expect:'Needs Evidence',codes:['NO_EVIDENCE',...OVER],refs:['BR-1']});
+ await c('UNAVAILABLE reach evidence does not prove a path',s=>{s.evidence[2].verification='UNAVAILABLE';},{rebind:true,expect:'Needs Evidence',codes:['LEVEL_EVIDENCE_MISSING',...OVER],refs:['BR-1/cdms']});
+ await c('explicit VERIFIED evidence is proof',s=>{for(const e of s.evidence)e.verification='VERIFIED';},{rebind:true,expect:'Development-Ready',codes:[]});
+ await c('unknown verification value is incomplete evidence',s=>{s.evidence[0].verification='MAYBE';},{rebind:true,expect:'Needs Evidence',codes:['NO_EVIDENCE','EVIDENCE_INCOMPLETE',...OVER],refs:['BR-1','EV-1']});
  return {PBI,cases:out};
 }
 // Writes a case as real files: PBI documents, state and evidence sources (null documents are not written).

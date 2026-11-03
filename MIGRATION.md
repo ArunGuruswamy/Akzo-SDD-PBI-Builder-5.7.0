@@ -1,4 +1,35 @@
-# Migrating to Akzo SDD PBI Builder 5.2.1
+# Migrating to Akzo SDD PBI Builder 5.3.0
+
+## From 5.2.x
+- Install or upgrade normally (Install.cmd, the form, or `Upgrade all`) and allow reviewed
+  updates. The agent file gains the workflow router and the minimum-sufficient-evidence
+  rules; the guides gain gap-impact, evidence-verification, dependency and shared-UI rules.
+  `config.json` (repository paths, editor, role) is never replaced by empty values.
+- `pbi-state.json` is unchanged and still schemaVersion 2. Two optional fields are new:
+  `rules[].gaps[].impact` (BLOCKING, WARNING, INFORMATIONAL) and `evidence[].verification`
+  (VERIFIED, ASSUMED, UNAVAILABLE). Without them behavior is exactly as in 5.2.x: a gap without an
+  impact blocks, and evidence without `verification` counts as VERIFIED. Existing approvals stay valid.
+- `knowledge/evidence-index.json` entries may now carry `repository`, `revision` and `dependsOn`;
+  Refresh evidence records `dependencyHashes` and reports `reusable`. Older entries need no change.
+- Discover sources now also writes `knowledge/FILE-INDEX.txt` and adds entry points and
+  repository identity to `source-map.json`; the first run after the upgrade rewrites the map once.
+- `-LegacySource ''` (an empty value) now keeps the saved path; use `-ClearSource <key>` to remove
+  one. Paths containing `< > " | ? *` are refused by the form and by PowerShell.
+- Request folders created by 5.3.0 gain an `analysisPlan` entry in `pbi.json` and an
+  "Analysis plan" section in `REQUEST.md`; folders created earlier are not rewritten.
+
+### Rollback from 5.3.0 to 5.2.2
+1. Do not delete anything. The 5.2.2 package is kept in
+   `releases/Akzo-SDD-PBI-Builder-5.2.2/` (ZIP and `.sha256`); extract it somewhere new.
+2. Run its `Install-PBIBuilder.cmd -RepoPath "<repository>" -AllowUpdates` (or Upgrade all). Files
+   updated by 5.3.0 are replaced with their 5.2.2 versions and backed up first; edited files are
+   never overwritten.
+3. If something must be restored by hand, copy files from `playbook/pbi-builder/backups/<batch>/`
+   back to their original relative paths.
+4. PBIs, decisions and approvals need no rollback. A `pbi-state.json` that already uses `impact` or
+   `verification` is still valid JSON for 5.2.2, which ignores those two fields (a gap with an
+   INFORMATIONAL impact then blocks again, as it did before).
+5. `knowledge/FILE-INDEX.txt` and the extra map fields can stay or be deleted; nothing else reads them.
 
 ## From 5.2.0
 - Upgrade normally and review managed-file updates. Existing PBI folders,

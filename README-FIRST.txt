@@ -1,19 +1,22 @@
-AKZO SDD PBI BUILDER 5.2.1
+AKZO SDD PBI BUILDER 5.3.0
 Evidence-based PBI refinement | 1 November 2026
 
 WHAT IT DOES
-One Copilot agent per repository: "Akzo SDD PBI Builder - <your project>", and an
-offline form. The workflow:
-  Start PBI -> requirements -> legacy repository -> development target
-  (CDMS + UI, DAB + UI, UI Only or Both) -> deep analysis -> review ->
-  approve once -> generate -> preview and download.
+Copilot Chat is the normal interface, using one agent per repository:
+"Akzo SDD PBI Builder - <your project>". An offline HTML form is optional for setup,
+evidence inspection, dashboards and downloads. The workflow is:
+  Configure repositories -> Describe PBI in Chat -> Analyze existing flow -> Answer
+  business questions in Chat -> Review and explicitly approve in Chat -> Generate.
+A compact router in the agent loads only the guide the current step needs.
 The agent investigates the relevant accessible legacy, CDMS, DAB and shared Angular
-UI code the target needs, reports inaccessible sources (DAB reads CDMS as a
-reference; the shared UI is planned once), records who enforces each business rule
+UI code the target needs (the shared UI is analyzed once; DAB reads CDMS as a
+reference), reports inaccessible sources, records who enforces each business rule
 with evidence, and asks only genuine business
-decisions, together in one decision review. Review & approve in the form is the one
-approval: it is bound to a fingerprint of what was reviewed and generates the final
-PBIs (PBI-CDMS.md, PBI-DAB.md and/or PBI-UI.md, each also as DOCX and JSON).
+decisions, together in one decision review. Only genuine blockers hold a PBI back:
+gaps graded WARNING or INFORMATIONAL and unverified (ASSUMED or UNAVAILABLE) evidence
+are shown as warnings at review. The one final approval in Chat is bound to a
+fingerprint of what was reviewed; the installer generates the final PBIs
+(PBI-CDMS.md, PBI-DAB.md and/or PBI-UI.md, each also as DOCX and JSON).
 
 INSTALL - OPTION A: BROWSER (no PowerShell needed)
 1. Extract this ZIP (Extract All). Open Akzo-SDD-PBI-Builder.html from the
@@ -41,8 +44,11 @@ window opens:
    available; it is remembered for next time.
 2. For a first install choose the editor and what the repository is (CDMS,
    DAB (GraphQL), Shared Angular UI or Custom (Legacy CRM/XRM)); an upgrade keeps
-   its settings. Repositories... sets the Legacy, CDMS, DAB and shared Angular UI
-   paths (Browse per repository) and other repositories.
+   its settings. "Repair / configure..." sets the Legacy, CDMS, DAB and shared Angular UI
+   paths (Browse per repository) and other repositories; it warns about a folder
+   that is not found or has invalid characters, and still lets you save it.
+   Paths with spaces, absolute paths and sibling repositories are supported, and
+   a saved path is never replaced by an empty value.
 3. Install / Upgrade shows the planned changes and asks before writing.
    Upgrade all does the same for every listed repository with an older version.
    Repair, Verify and Uninstall work on the selected repository.
@@ -52,11 +58,19 @@ parameters, for example:
   Install-PBIBuilder.cmd -RepoPath "C:\src\My Repo" -ProjectName "My Repo" -Ide vscode -Role dab -Preview
   Install-PBIBuilder.cmd -RepoPath "C:\src\My Repo" -AllowUpdates
   Install-PBIBuilder.cmd -RepoPath "C:\src\My Repo" -UiSource ..\AN.ColorAppsAzure.UI -AllowUpdates
+  Install-PBIBuilder.cmd -RepoPath "C:\src\My Repo" -ClearSource ui -AllowUpdates   (removes a saved path on purpose)
+  An empty -LegacySource/-DabSource/-CdmsSource/-UiSource keeps the saved path.
+  Install, Repair and Verify print "Source access": for each configured repository,
+  readable (a real source file was read), configured-inaccessible (folder missing or
+  no readable source file) or not-configured. A path that is configured but not
+  verified is still saved; it is reported, never erased.
   (the older ColorDMS analysis documents are not installed unless you add -IncludeReferences;
   the agent investigates the repository directly and never needs them)
   powershell -File PBI-Builder-Setup.ps1 -NoGui -Action Upgrade   (all listed repositories)
 Actions: -Action Install (default), Verify, Repair, Uninstall, CheckPbi,
-RefreshEvidence. -Preview shows changes without writing. Uninstall.cmd (same as
+RefreshEvidence and ApproveAndGenerate (requires the PBI, approver name and
+latest reviewed-content fingerprint). -Preview shows changes without writing.
+Uninstall.cmd (same as
 Uninstall-PBIBuilder.cmd) removes setup files but always keeps PBIs, decisions,
 history and knowledge notes.
 Both options write identical files for the same settings; see
@@ -76,8 +90,10 @@ bypass or change your execution policy, Group Policy, AppLocker or WDAC.
   remove the mark from this package folder's files (Unblock-File, the standard
   Windows step). Answer Y and it continues. Nothing else changes.
 - Policy AllSigned or Restricted, or set by Group Policy: the scripts cannot run
-  unsigned. Use Option A (the browser form: install, upgrade, repair, verify and
-  uninstall) or ask IT for the organization-signed package (below).
+  unsigned. Use Option A (the browser form supports install, upgrade, repair,
+  verify, uninstall and its own generation workflow) or ask IT for the
+  organization-signed package (below). Chat-triggered final generation requires
+  the installer action to be allowed.
 - AppLocker or WDAC (Constrained Language mode): use Option A or the signed
   package that IT allows.
 - Missing or damaged package file: extract the original ZIP again.
@@ -92,9 +108,14 @@ Interrupted install (window closed, PC restarted): run Install again with the sa
 settings. It completes the installation; nothing else is needed. Ctrl+C during
 writing restores the files touched so far.
 
-CREATE A PBI
+CREATE A PBI IN COPILOT CHAT
 Open a NEW Copilot chat for every new PBI, so nothing from an earlier PBI is
-carried over. Use the form's New PBI tab (four steps):
+carried over. Select the builder agent and type "Start PBI" (also Create PBI,
+New PBI, Start Development or Implement PBI). The agent gathers missing intake
+details, investigates accessible configured sources, asks only material business
+questions in Chat, and presents an evidence-based review. Nothing is approved by
+silence or by accepting a recommendation.
+The optional form's New PBI tab is available for users who prefer guided intake:
 1. Requirements: PBI number (Azure DevOps or an identifier such as LOCAL-12),
    title, description and acceptance criteria (required), attachments (optional).
 2. Select Legacy Source Repository: a configured repository; Validate browses to
@@ -103,19 +124,27 @@ carried over. Use the form's New PBI tab (four steps):
    Both (CDMS + DAB + UI). The form shows each repository's role and path.
 4. Review & start: analysis mode (Quick, Deep - the default - or Comprehensive),
    optional extra references, then Start analysis and paste the prompt in Copilot.
-Or type "Start PBI" in Copilot (also Create PBI, New PBI, Start Development,
-Implement PBI); the agent asks for the same things in one message. An existing PBI
-number offers Resume, Review or Start New Version; nothing is overwritten.
-The agent investigates on its own and asks only genuine business decisions in one
-decision review (Business Decision Advisor skill); answers can also be given on the
-form's Continue tab. There is no DAB plugin: DAB implements every applicable legacy
+An existing PBI number offers Resume, Review or Start New Version; nothing is
+overwritten. There is no DAB plugin: DAB implements every applicable legacy
 rule in its own code, while CDMS reuses verified plugins.
 
-FINISH A PBI: APPROVE ONCE
-Continue tab -> select the PBI -> Review selected PBI. Seven cards show the PBI,
+FINISH A PBI: REVIEW AND APPROVE ONCE IN CHAT
+The agent summarizes the PBI, source findings, decisions, blockers and warnings in
+Chat, then offers Approve & Generate, Request Changes or Save Draft / Decide Later.
+Review the summary and explicitly choose Approve & Generate; provide the approver
+name when requested. In VS Code, the agent invokes the installer readiness-bound
+generation action. In an IDE without command execution, it provides the equivalent
+command for you to run. The action rechecks readiness and the exact reviewed-content
+fingerprint before approval and generation; it refuses changed or blocked PBIs and
+rolls back earlier files if generation fails.
+
+The optional form offers the same review in Continue tab -> select the PBI ->
+Review selected PBI. Seven cards show the PBI,
 requirements, repository analysis, implementation approach, decisions, sensitive
-content and technical readiness. Approve & Generate records your approval, generates the final PBIs and
-verifies every file; Request Changes and Save Draft approve nothing. The PBI
+content and technical readiness; an eighth card lists warnings that do not block the
+approval, and the collapsed "Detailed evidence, analysis plan and warnings" panel
+holds the full evidence list. Form-based Approve & Generate also verifies every file;
+Request Changes and Save Draft approve nothing. The PBI
 Generated Successfully window offers DOCX, MD and JSON per PBI, a preview, and one
 ZIP with everything. Values that look like credentials are replaced with
 [REDACTED: <kind>] before anything is saved, and a credential left in a PBI's
@@ -125,6 +154,12 @@ PO/BA, security, architecture or technical sign-off your
 organization requires remains a separate step outside this tool. See
 docs/USER-GUIDE.md.
 
+UPGRADING FROM 5.2.x
+Install or upgrade as usual and allow reviewed updates (the agent file, guides
+and optional form change; settings, repository paths, PBIs,
+decisions, approvals and evidence are kept). To go back, see ROLLBACK in
+MIGRATION.md; the 5.2.2 package stays in releases/.
+
 UPGRADING FROM 5.2.0
 Install or upgrade as usual and allow reviewed updates. The updated review
 snapshot includes recorded local evidence-source contents, so an earlier
@@ -133,8 +168,8 @@ history are retained. External evidence is bound to its recorded revision; the
 form cannot verify the current contents of another repository.
 
 UPGRADING FROM 4.x
-Install as above (Install.cmd, the form, or Upgrade all) and allow reviewed updates.
-The setup window and the form show "update to 5.2.1 available". Files you never
+Install as above (Install.cmd, the optional form, or Upgrade all) and allow reviewed updates.
+The setup window and the form show "update to 5.3.0 available". Files you never
 edited are updated with backups. PBIs, decisions and approval history are kept; from
 5.0 only the final user approval is required, so a 4.x PBI that was waiting only
 for PO/BA or technical approval can be reviewed and approved if other checks pass. Add the shared
@@ -160,10 +195,11 @@ DAILY USE
 In Copilot select the agent and type "Start PBI", "Resume PBI <number>",
 "Continue PBI <number or folder>" or "Refine PBI <number>: <what changed>".
 Other commands: Review, Edit, Show Decisions, Analyze Legacy, Analyze Workflows,
-Extract Plugin Rules, Show Technical
-Flow, Generate Acceptance Criteria, Export and Validate PBI <number>. The form's New PBI and Continue PBI tabs
-remain available. Review & approve runs the readiness check itself; to run it
-alone use Check PBI readiness (form) or
+Extract Plugin Rules, Show Technical Flow, Generate Acceptance Criteria, Export
+and Validate PBI <number>. The form's New PBI and Continue PBI tabs remain
+available. Chat-based Approve & Generate reruns readiness and verifies the reviewed
+content fingerprint. To check readiness alone use the optional form's Check PBI
+readiness or
   Install-PBIBuilder.cmd -RepoPath "C:\src\My Repo" -Action CheckPbi -Pbi <folder>
 It checks completeness and consistency, not business correctness or who approved.
 

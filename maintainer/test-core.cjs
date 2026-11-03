@@ -15,8 +15,8 @@ async function approveReviewed(root,folder,who){const r=await P.checkPbi(root,fo
  const html=await fs.readFile(path.join(__dirname,'Akzo-SDD-PBI-Builder.html'),'utf8');
  const raw={projectName:'Customizations & QA',ide:'visualstudio',role:'legacy',sources:{dab:'../DAB',legacy:'',cdms:''},includeReferences:true};
  const setup=P.setupFiles(raw,assets,html);
- await test('one agent: VS and VS Code names, tools and relative source registry',async()=>{assert.equal(setup.config.sources.legacy,'.');assert.match(setup.files[P.AGENT],/readfile/);assert.match(setup.files[P.AGENT],/Customizations & QA/);assert.equal(Object.keys(setup.files).filter(p=>p.startsWith('.github/agents/')).length,1);assert.ok(!Object.keys(setup.files).includes('.github/copilot-instructions.md'));const c=P.setupFiles({...raw,projectName:'Other project',ide:'vscode',role:'dab'},assets,html);assert.match(c.files[P.AGENT],/\["read", "search", "edit", "vscode\/askQuestions"\]/);assert.equal(c.config.sources.dab,'.');assert.ok(!Object.values(c.files).some(x=>x.includes('C:\\Users\\prasadv')));assert.ok(!/dynamic/i.test(Object.entries(setup.files).filter(([p])=>!p.includes('/references/')&&!p.includes('REFERENCES-INDEX')&&!p.endsWith('.html')).map(([p,t])=>p+t).join('')))});
- await test('agent carries ownership, readiness and final-approval rules; guides load on demand',async()=>{const a=setup.files[P.AGENT];for(const re of [/four evidence levels/i,/Plugin source alone does not prove/,/one approval screen/,/Only Approve & Generate\s+records the user's final approval/,/never ask for separate PO\/BA, technical or per-document approvals/,/The user's approval of the draft is never\s+PO\/BA or technical approval/,/Never infer approval from silence/,/the check marks the approval stale/,/copied unchanged/,/Do not\s+change application code, tests, dependencies/,/hidden or disabled button/])assert.match(a,re);for(const s of ['execution-path-analysis','readiness-and-approval','repository-knowledge'])assert.ok(setup.files[P.BASE+'/skills/'+s+'.md']);assert.match(setup.files[P.BASE+'/PBI-TEMPLATE.md'],/Validation ownership/);assert.match(setup.files[P.BASE+'/REFERENCES-INDEX.md'],/^- L\d+ #/m)});
+ await test('one agent: VS and VS Code names, tools and relative source registry',async()=>{assert.equal(setup.config.sources.legacy,'.');assert.match(setup.files[P.AGENT],/readfile/);assert.match(setup.files[P.AGENT],/Customizations & QA/);assert.equal(Object.keys(setup.files).filter(p=>p.startsWith('.github/agents/')).length,1);assert.ok(!Object.keys(setup.files).includes('.github/copilot-instructions.md'));const c=P.setupFiles({...raw,projectName:'Other project',ide:'vscode',role:'dab'},assets,html);assert.match(c.files[P.AGENT],/\["read", "search", "edit", "execute", "vscode\/askQuestions"\]/);assert.equal(c.config.sources.dab,'.');assert.ok(!Object.values(c.files).some(x=>x.includes('C:\\Users\\prasadv')));assert.ok(!/dynamic/i.test(Object.entries(setup.files).filter(([p])=>!p.includes('/references/')&&!p.includes('REFERENCES-INDEX')&&!p.endsWith('.html')).map(([p,t])=>p+t).join('')))});
+ await test('agent carries ownership, readiness and final-approval rules; guides load on demand',async()=>{const a=setup.files[P.AGENT];for(const re of [/four evidence levels/i,/Plugin source alone does not prove/,/present a concise review in Copilot Chat/i,/Wait for an explicit approval before recording it\s+or generating final documents/,/Never ask for\s+separate PO\/BA, technical or per-document approvals/i,/The user's approval of the draft is never\s+PO\/BA or technical approval/,/Never infer approval from silence/,/the\s+check marks the approval stale/i,/copied unchanged/,/Do not\s+change application code, tests, dependencies/,/hidden or disabled button/])assert.match(a,re);for(const s of ['execution-path-analysis','readiness-and-approval','repository-knowledge'])assert.ok(setup.files[P.BASE+'/skills/'+s+'.md']);assert.match(setup.files[P.BASE+'/PBI-TEMPLATE.md'],/Validation ownership/);assert.match(setup.files[P.BASE+'/REFERENCES-INDEX.md'],/^- L\d+ #/m)});
  await test('generation contract: bundle placeholders render to setupFiles and fail on unknown tokens',async()=>{const b=JSON.parse(JSON.stringify(P.bundle(assets)));assert.equal(b.schemaVersion,1);for(const t of b.setup)if(t.template)for(const m of t.template.matchAll(/\{\{PBI:([A-Z0-9_]+)\}\}/g))assert.ok(b.tokens.includes(m[1]),m[1]);assert.deepEqual(b.setup.map(t=>t.path).filter(p=>p in setup.files),Object.keys(setup.files));assert.throws(()=>P.render('x {{PBI:NOPE}}',{},'t'),/Unresolved placeholder \{\{PBI:NOPE\}\}/);assert.throws(()=>P.normalizeConfig({...raw,schemaVersion:2}),/Unsupported config schemaVersion/);assert.equal(P.render('{{PBI:A}}',{A:'{{PBI:B}} $&'},'t'),'{{PBI:B}} $&')});
  await test('fresh install writes and verifies files while preserving unrelated instructions',async()=>{await P.write(root,'.github/copilot-instructions.md','KEEP ME');const rows=await P.plan(root,setup.files,true);assert.ok(rows.every(r=>r.state==='create'));const r=await P.apply(root,rows);assert.equal(r.written,Object.keys(setup.files).length+1);assert.equal(await P.read(root,'.github/copilot-instructions.md'),'KEEP ME');for(const [p,t]of Object.entries(setup.files))assert.equal(await P.read(root,p),t)});
  await test('unchanged reinstallation is idempotent',async()=>{const rows=await P.plan(root,setup.files,true);assert.ok(rows.every(r=>r.state==='unchanged'));assert.equal((await P.apply(root,rows)).written,0)});
@@ -159,7 +159,7 @@ async function approveReviewed(root,folder,who){const r=await P.checkPbi(root,fo
  });
  await test('XRM workflow guide: discovery, activation, branches, custom activities, termination, recursion, ownership, scopes, coverage matrix',async()=>{
   const a=setup.files[P.AGENT],x=setup.files[P.BASE+'/skills/xrm-workflow-intelligence.md'];
-  for(const re of [/xrm-workflow-intelligence.md: before analyzing classic CRM workflows/,/Analyze Workflows <n> \[operation\]/,/PLUGIN-WORKFLOW-COVERAGE.md \(Analyze Workflows\)/])assert.match(a,re);
+  for(const re of [/xrm-workflow-intelligence\.md for\s+classic workflows and ownership/,/Analyze Workflows <n> \[operation\]/,/PLUGIN-WORKFLOW-COVERAGE.md \(Analyze Workflows\)/])assert.match(a,re);
   for(const re of [/Power Automate cloud flows \(category 5/,/never\s+merge its findings with classic workflow findings/,/\*\.xaml\.data\.xml/,/TriggerOnUpdateAttributeList/,/Do not parse every workflow in the repository/,
    /does not prove the workflow is active[\s\S]*"activation unverified"/,/ConditionSequence, ConditionBranch/,/Wait="True"/,/CodeActivity/,/StartChildWorkflow/,/In a real-time workflow,\s+Canceled shows the message to the user and rolls back/,
    /In a background workflow it only ends the job/,/"possible recursion"/,/never invent an order between them/,/OWNER_MISATTRIBUTED/,/Implemented and verified/,/Source found, runtime unverified/,/Partially implemented/,/Missing in inspected sources/,
@@ -169,7 +169,7 @@ async function approveReviewed(root,folder,who){const r=await P.checkPbi(root,fo
  });
  await test('ownership guide: no DAB plugin, application choice, JavaScript/HTML/ribbon sources, one canonical rule, CDMS and DAB owners, documents',async()=>{
   const o=setup.files[P.BASE+'/skills/business-rule-ownership.md'],a=setup.files[P.AGENT];
-  for(const re of [/## There is no DAB plugin/,/Never create a DAB plugin task,\s+contract, handoff or dependency/,/business-rule-ownership.md: for the application choice/,/kind of change,\s+application areas/])assert.match(a,re);
+  for(const re of [/## There is no DAB plugin/,/Never create a DAB plugin task,\s+contract, handoff or dependency/,/for the application\s+choice and the shared UI, business-rule-ownership\.md/,/kind of change,\s+application areas/])assert.match(a,re);
   for(const re of [/DAB_PLUGIN_ASSIGNED/,/CDMS \+ UI, DAB \+ UI, UI Only\s+or Both/,/Never ask again unless the user changes it/,/OnLoad, OnSave and OnChange/,/HTML web resources/,/RibbonDiffXml/,/Source\/Formula\/PaintSystem\/PaintSystem\//,/Source\/Formula\/CustomWorkflow\//,
    /Source\/Formula\/ImitationRequest\//,/never infer a\s+rule from a file or method name/,/A client-side check is never server enforcement/,/Record one BR\s+with every source as evidence/,/never choose one silently/,
    /Implementation owner: Existing CRM plugin\. Development action: already\s+handled by the plugin; no duplicate CDMS API implementation/,/If registration or runtime is unverified, say so/,
@@ -246,8 +246,8 @@ async function approveReviewed(root,folder,who){const r=await P.checkPbi(root,fo
   for(const re of [/Mandatory for every PBI refinement/,/one branch in a plugin or workflow\s+never covers the rule/,/Failure and rollback/,/covered, partial, missing,\s+conflicting \(needs risk\), unverified or not-applicable/,/Legacy code never covers a\s+DAB branch/,
    /Never call a branch safe because an API can perform the\s+operation/,/"Paint system does not have a measurement"/,/Do you want to replace the Market Color\s+Measurement with this Paint System measurement\?/,/BR-1\.N is a suspected CDMS gap/,
    /For DAB both Yes and No are required behavior in DAB code/,/A technical gap is a development finding, not a business question/,/Export developer handoff/])assert.match(b,re);
-  for(const re of [/business-rule-branch-completeness.md: mandatory for every refinement/,/never ask for a path that is\s+configured and readable/,/never read a whole repository for a PBI/,/update only the affected decision,\s+rules, branches, criteria and documents/,
-   /files read, searches run,\s+evidence index entries reused and refreshed/,/PBI scope: Both\. I found the Paint System measurement logic/,/business-rules.json \(written by the\s+form's Export developer handoff button/])assert.match(a,re);
+  for(const re of [/business-rule-branch-completeness\.md\s+\(mandatory for every refinement\)/,/never ask for a path that is\s+configured and readable/,/never read a whole repository for a PBI/,/update only the affected decision,\s+rules, branches, criteria and documents/,
+   /"Run metrics" section: files read\s+\(and any read twice\), searches run, tool calls/,/evidence index entries reused,\s+refreshed and invalidated/,/PBI scope: Both\. I found the Paint System measurement logic/,/business-rules.json \(written by the\s+form's Export developer handoff button/])assert.match(a,re);
   assert.match(k,/"confidence" \(verified-registration: source and execution registration;\s+verified-source; partial; inferred; unverified\)\. Never store credentials/);
  });
  await test('Paint System measurement (Developed): Yes covered by the plugin, No and rollback branches detected, side-effect risk, handoff, incremental update, cache',async()=>{
@@ -321,7 +321,7 @@ async function approveReviewed(root,folder,who){const r=await P.checkPbi(root,fo
   const tools=t=>JSON.parse(/^tools: (\[.*\])$/m.exec(t)[1]);
   const vs=tools(P.setupFiles({...raw,ide:'visualstudio'},assets,html).files[P.AGENT]),code=tools(P.setupFiles({...raw,ide:'vscode'},assets,html).files[P.AGENT]);
   assert.ok(vs.every(t=>VS_DOCUMENTED.includes(t)),vs.join());assert.ok(!vs.includes('runcommandinterminal'));assert.ok(!vs.some(t=>code.includes(t)));
-  assert.deepEqual(code,['read','search','edit','vscode/askQuestions']);
+  assert.deepEqual(code,['read','search','edit','execute','vscode/askQuestions']);
   const vsCfg=P.setupFiles({...raw,ide:'visualstudio'},assets,html).config;
   for(const key of Object.keys(P.BASELINES))assert.match(P.baselineAgent(vsCfg,key),/tools: \["readfile", "code_search", "editfiles"\]/);
  });
@@ -367,7 +367,18 @@ async function approveReviewed(root,folder,who){const r=await P.checkPbi(root,fo
   const notConfigured=await P.discoverSources(r,{sources:{legacy:'',dab:'',cdms:''}});assert.deepEqual(notConfigured.sources.map(s=>s.status),['not-configured','not-configured','not-configured','not-configured']);
   // Only the two map files were added; nothing else in the repository changed.
   const all=[];const walk=async(d,rel)=>{for(const e of await fs.readdir(d,{withFileTypes:true})){const p=rel?rel+'/'+e.name:e.name;if(e.isDirectory())await walk(path.join(d,e.name),p);else all.push(p);}};await walk(dir,'');
-  assert.deepEqual(all.filter(p=>!before.has(p)).sort(),[P.BASE+'/knowledge/SOURCE-MAP.md',P.SOURCE_MAP].sort());
+  assert.deepEqual(all.filter(p=>!before.has(p)).sort(),[P.BASE+'/knowledge/SOURCE-MAP.md',P.SOURCE_MAP,P.FILE_INDEX].sort());
+  // The file index lists source files, skips build output and dependency folders, and keeps only configuration-like JSON.
+  const idx=(await P.read(r,P.FILE_INDEX)).trim().split('\n');assert.ok(idx.includes('Source/Plugins/PaintSystemValidator.cs')&&idx.includes('WebResources/PaintSystemLib.js'));assert.ok(!idx.some(p=>/\/bin\/|node_modules|^playbook\//.test(p)));
+  assert.deepEqual(m.entryPoints,['Web/Portal/Web.config']);assert.equal(m.fileIndex.path,P.FILE_INDEX);assert.equal(m.fileIndex.files,idx.length);assert.equal(m.fileIndex.complete,true);assert.match(m.fileIndex.sha256,/^[0-9a-f]{64}$/);assert.equal(m.fileIndex.bytes,Buffer.byteLength(idx.join('\n')+'\n'));
+  // Second run: nothing changed, so every solution and project is reused without being read and no file is rewritten.
+  const none={sources:{legacy:'',dab:'',cdms:''}};
+  const again=await P.measure(()=>P.discoverSources(r,none));
+  assert.deepEqual(again.result.changes,{added:[],modified:[],removed:[],reused:5});assert.equal(again.result.written,false);assert.equal(again.metrics.writes,0);assert.equal(again.metrics.skippedWrites,3);
+  // Editing one project re-reads only that project; a deleted one is reported.
+  await P.write(r,'Source/Common/Common.csproj','<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>');await fs.rm(path.join(dir,'Web/Portal/Portal.csproj'));
+  const edited=await P.discoverSources(r,none);assert.deepEqual(edited.changes,{added:[],modified:['Source/Common/Common.csproj'],removed:['Web/Portal/Portal.csproj'],reused:3});
+  assert.deepEqual(edited.projects.find(x=>x.path==='Source/Common/Common.csproj').frameworks,['net8.0']);assert.equal(edited.written,true);
   // The handoff keeps source access and repository dependencies for the development agent.
   const h=P.handoff({sourceAccess:[{source:'dab',path:'../DAB',status:'configured-inaccessible',reason:'outside'}],dependencies:[{id:'DEP-1',repository:'DAB',responsibility:'Implement'}]},null);
   assert.deepEqual(h.sourceAccess[0].status,'configured-inaccessible');assert.equal(h.dependencies[0].repository,'DAB');
@@ -550,7 +561,8 @@ async function approveReviewed(root,folder,who){const r=await P.checkPbi(root,fo
    /Give file paths, class and method names and line numbers for every claim/,/establish whether the behavior already exists/,/never\s+duplicate a validation or business rule/,
    /Not Verified\s+\(UNKNOWN in pbi-state\.json\)/,/ANALYSIS\.md, REFERENCE-ANALYSIS\.md, architecture summaries, earlier SDDs,\s+cached or generated reports are never proof/,
    /Skip what \.gitignore excludes/,/Never copy secrets or sensitive files/,/test cases and\s+implementation recommendations/,
-   /Approve & Generate, Request Changes and Save Draft/,/Never write the final approval or the final PBI documents yourself/])assert.match(a,re);
+   /Approve & Generate; 2\. Request Changes;\s+3\. Save Draft/,/Wait for an explicit approval before recording it/])assert.match(a,re);
+  assert.match(setup.files[P.BASE+'/skills/readiness-and-approval.md'],/Install-PBIBuilder\.ps1 -RepoPath <repository-root> -Action ApproveAndGenerate/);
  });
  await test('HTML uninstall: same rows as the PowerShell installer, backups first, PBIs, knowledge and edited files kept, rollback on failure',async()=>{
   const d=path.join(tmp,'uninstall-core');await fs.mkdir(d);const root=new DirectoryHandle(d);
@@ -604,7 +616,7 @@ async function approveReviewed(root,folder,who){const r=await P.checkPbi(root,fo
    /same "Shared requirement" line/,/Legacy is the primary functional\s+reference for both/,/state explicitly every JavaScript validation, workflow and\s+application-side logic CDMS must implement itself/,
    /explicit C# implementation steps for every applicable legacy\s+rule, including the rules CRM plugins enforce automatically for CDMS/,/Never omit a DAB\s+validation because CDMS relies on a plugin/,/never publish them and never invent work\s+item IDs/])assert.match(o,re);
   const prompt=app=>P.newPbi(setup.config,{title:'T',description:'d',application:app}).prompt;
-  assert.match(prompt('both'),/Final deliverables, generated by the wizard after the one final approval: PBI-CDMS\.md, PBI-DAB\.md, PBI-UI\.md \(the shared UI work once, in PBI-UI\.md only\)/);
+  assert.match(prompt('both'),/Final deliverables, generated by the existing PBI Builder generator after the one final approval: PBI-CDMS\.md, PBI-DAB\.md, PBI-UI\.md \(the shared UI work once, in PBI-UI\.md only\)/);
   assert.match(prompt('cdms'),/final approval: PBI-CDMS\.md\.\n/);assert.match(prompt('dab'),/final approval: PBI-DAB\.md\.\n/);assert.match(prompt('ui'),/final approval: PBI-UI\.md\.\n/);
   assert.doesNotMatch(prompt('dab'),/PBI-CDMS/);assert.doesNotMatch(prompt('unsure'),/Final deliverables/);
   assert.deepEqual(P.READINESS.finalDocs,{cdmsRefined:['cdms','PBI-CDMS.md'],dabRefined:['dab','PBI-DAB.md'],uiRefined:['ui','PBI-UI.md']});

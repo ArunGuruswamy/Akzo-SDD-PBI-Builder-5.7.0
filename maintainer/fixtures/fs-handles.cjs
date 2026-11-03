@@ -4,7 +4,7 @@ const fs=require('node:fs/promises'),path=require('node:path');
 function browserError(e){if(e.code==='ENOENT')e.name='NotFoundError';else if(['ENOTDIR','EISDIR'].includes(e.code))e.name='TypeMismatchError';return e;}
 class FileHandle{
  constructor(p){this.path=p;this.kind='file';this.name=path.basename(p);}
- async getFile(){try{const b=await fs.readFile(this.path);return{text:async()=>new TextDecoder().decode(b),arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)}}catch(e){throw browserError(e)}}
+ async getFile(){try{const b=await fs.readFile(this.path),st=await fs.stat(this.path);return{size:b.length,lastModified:Math.floor(st.mtimeMs),slice:(s,e)=>({text:async()=>new TextDecoder().decode(b.subarray(s,e))}),text:async()=>new TextDecoder().decode(b),arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)}}catch(e){throw browserError(e)}}
  async createWritable(){const p=this.path;let txt;return{write:async text=>{txt=text},close:async()=>fs.writeFile(p,txt,'utf8'),abort:async()=>{}};}
 }
 class DirectoryHandle{

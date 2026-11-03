@@ -17,7 +17,8 @@ async function activeConfig(){needRoot();const raw=await PBI.read(root,PBI.CONFI
 async function solutions(dir,prefix='',depth=0){const items=[];if(depth>2)return items;for await(const [name,h]of dir.entries()){if(h.kind==='file'&&/\.slnx?$/i.test(name))items.push(prefix+name);else if(h.kind==='directory'&&!['.git','.vs','node_modules','bin','obj','packages','playbook'].includes(name)){items.push(...await solutions(h,prefix+name+'/',depth+1));}if(items.length>=30)break;}return items.slice(0,30);}
 const sessionRepos=[];
 function resetRepositoryState(){
- pbiItems=[];draftFolder='';draftAttachments=[];lastAnswered='';reviewing=null;done=null;dupMatch=null;pbiRefs=[];
+ pbiItems=[];draftFolder='';draftAttachments=[];lastAnswered='';reviewing=null;done=null;dupMatch=null;pbiRefs=[];lastAccess=undefined;
+ closeDecisionDialog();
  for(const id of ['pbiTitle','pbiNumber','customProject','pbiScope','pbiDescription','acceptanceCriteria','pbiNotes','businessReason','businessExample','businessUnit','changes','manualPbi','answeredBy','approverName','reviewNote'])$(id).value='';
  $('attachments').value='';$('attachmentList').textContent='';$('changeType').value='unsure';setTarget('');setMode('deep');$('separateDraft').checked=false;showStep(1);
  $('existingPbi').replaceChildren(new Option('Find PBIs in this project',''));$('pbiDetails').textContent='';$('review').replaceChildren();$('reviewCards').replaceChildren();$('approveBox').classList.add('hidden');
@@ -44,6 +45,7 @@ async function openRoot(selected){if(!root||!(await root.isSameEntry(selected)))
  const found=await solutions(root);$('solutions').textContent=(git?'Git root marker found. ':'No Git root marker found; confirm this is the correct root. ')+(found.length?'Solutions found (up to 3 folder levels):\n'+found.join('\n'):'No solution found within 3 folder levels. Open the repository folder in VS Code, or locate the correct Visual Studio solution.');
  const old=await PBI.read(root,'.github/agents/akzo-sdd-pbi.agent.md');
  msg((current?'Existing setup loaded.':'Project selected: '+root.name)+(old?'\nAn earlier PBI Builder agent exists. It will be preserved; choose the new project-specific agent name after installation.':''));
+ await syncJourney();
 }
 // Same as Install-PBIBuilder.ps1 -Action Repair: installed settings, updates allowed, edited files never overwritten.
 action('repair',async()=>{const c=await activeConfig();const rows=await PBI.plan(root,PBI.setupFiles(c,assets,originalHTML).files,true);renderReview(rows);await applySetup(c,rows,true);});
@@ -128,7 +130,7 @@ $('chooseRefs').onclick=openRefs;
 $('refOk').onclick=()=>{pbiRefs=[...$('refList').children].map(l=>l.children[0]).filter(b=>b&&b.checked).map(b=>b.value);const d=$('refDialog');if(d.close)d.close();showRefs();};
 showStep(1);
 function showPrompt(title,folder,prompt,zipOnly){$('promptOutput').classList.remove('hidden');$('outputTitle').textContent=title;$('outputWhere').textContent=(zipOnly?'ZIP prepared for: ':'Saved in: ')+folder;$('promptText').value=prompt;$('outputInstruction').textContent=(zipOnly?'Extract this ZIP into the intended repository first. ':'')+'In Copilot Chat, select '+needConfig().agentName+', paste this prompt and click Send.';$('promptOutput').scrollIntoView({behavior:'smooth',block:'start'});}
-async function createIntake(zipOnly,draft=false){const c=zipOnly?needConfig():await activeConfig();config=c;const files=picked(),data=intake(draft);
+async function createIntake(zipOnly,draft=false){const c=zipOnly?needConfig():await activeConfig();config=c;const files=picked(),data=intake(draft);data.sourceAccess=lastAccess;
  if(!zipOnly&&!draftFolder){const existing=await PBI.listPbis(root),n=data.number.trim(),match=n&&existing.find(x=>x.number===n);
   if(match&&!$('separateDraft').checked){dupMatch={match,zipOnly,draft};$('dupText').textContent='PBI '+n+' is saved in '+match.folder+'. Resume it, review it, or start a new version in a new folder. Nothing has been saved yet.';const d=$('dupDialog');if(d.showModal&&!d.open)d.showModal();msg('PBI '+n+' already exists. Choose Resume, Review or Start New Version. Nothing was saved.');return;}}
  if(!zipOnly&&!draft&&(invalidStep(3)||!$('legacyRepo').value)){const bad=invalidStep(3)||2;showStep(bad);throw Error('Complete the required fields first. Nothing was saved.');}
@@ -144,7 +146,7 @@ async function createIntake(zipOnly,draft=false){const c=zipOnly?needConfig():aw
   const rows=await PBI.plan(root,all,false,!!draftFolder);await PBI.apply(root,rows,!!draftFolder);}
  if(draft&&!zipOnly){draftFolder=result.folder;draftAttachments=result.request.attachments;$('attachments').value='';$('attachments').onchange();}else{draftFolder='';draftAttachments=[];}
  showPrompt(draft?'Draft saved':'Start this PBI in Copilot',result.folder,result.prompt,zipOnly);
- msg((zipOnly?'Intake ZIP prepared. It does not contain an AI-refined PBI. Extract it before sending the prompt.':draft?'Draft saved in '+result.folder+'. Resume it later with “Resume draft in New PBI” on the Continue tab, or “Resume PBI” in Copilot.':'Intake saved'+(result.attachments.length?' with '+result.attachments.length+' attachment(s)':'')+'. Copy the prompt below into the selected PBI Builder agent.')+protection(result));}
+ msg((zipOnly?'Intake ZIP prepared. It does not contain an AI-refined PBI. Extract it before sending the prompt.':draft?'Draft saved in '+result.folder+'. Resume it later with “Resume draft in New PBI” on the Continue tab, or “Resume PBI” in Copilot.':'Intake saved'+(result.attachments.length?' with '+result.attachments.length+' attachment(s)':'')+'. Copy the prompt below into the selected PBI Builder agent.')+protection(result));await syncJourney();}
 function protection(r){return (r.redactions.length?'\nSensitive values replaced with [REDACTED] before saving: '+r.redactions.map(f=>f.kind+' ('+f.count+')').join(', ')+'.':'')+(r.warnings.length?'\nInstruction-like text flagged as untrusted (kept, listed in REQUEST.md): '+r.warnings.length+' line(s).':'');}
 let dupMatch=null;
 function closeDup(){const d=$('dupDialog');if(d.close)d.close();const m=dupMatch;dupMatch=null;return m;}
@@ -154,7 +156,7 @@ action('dupReview',async()=>{const m=closeDup();if(!m)return;await refreshPbis()
 action('dupNew',async()=>{const m=closeDup();if(!m)return;$('separateDraft').checked=true;await createIntake(m.zipOnly,m.draft);});
 $('dupCancel').onclick=()=>{closeDup();msg('Cancelled. Nothing was saved.');};
 action('saveNew',()=>createIntake(false));action('saveDraft',()=>createIntake(false,true));action('newZip',()=>createIntake(true));
-async function refreshPbis(){needRoot();config=await activeConfig();pbiItems=await PBI.listPbis(root);const select=$('existingPbi');select.replaceChildren(new Option(pbiItems.length?'Choose a PBI':'No saved PBIs found',''));for(const item of pbiItems)select.add(new Option((item.number?item.number+' · ':'')+item.title+' ['+item.folder.split('/').pop()+']',item.folder));$('pbiDetails').textContent='';msg(pbiItems.length+' PBI folders found.');}
+async function refreshPbis(){needRoot();config=await activeConfig();pbiItems=await PBI.listPbis(root);const select=$('existingPbi');select.replaceChildren(new Option(pbiItems.length?'Choose a PBI':'No saved PBIs found',''));for(const item of pbiItems)select.add(new Option((item.number?item.number+' · ':'')+item.title+' ['+item.folder.split('/').pop()+']',item.folder));$('pbiDetails').textContent='';msg(pbiItems.length+' PBI folders found.');await syncJourney();}
 action('refresh',refreshPbis);
 $('existingPbi').onchange=()=>{const item=pbiItems.find(x=>x.folder===$('existingPbi').value);$('pbiDetails').textContent=item?item.folder+'\nDocuments present: '+(item.present.join(', ')||'Intake metadata only')+(item.metadataWarning?'\n'+item.metadataWarning:'')+'\nFile presence does not prove business approval.':'';};
 async function createRefinement(zipOnly){config=zipOnly?needConfig():await activeConfig();const folder=zipOnly?($('existingPbi').value||$('manualPbi').value.trim()):$('existingPbi').value;if(!folder)throw Error(zipOnly?'Select or enter the existing PBI folder.':'Find and select an existing PBI first.');if(!zipOnly&&!(await PBI.listPbis(root)).some(x=>x.folder===folder))throw Error('The selected PBI is no longer available. Refresh the list.');const result=PBI.refinePbi(folder,$('changes').value);if(zipOnly)download(PBI.zip(result.files),'PBI-refinement.zip');else await PBI.apply(root,await PBI.plan(root,result.files));showPrompt('Continue this PBI in Copilot',result.folder,result.prompt,zipOnly);msg(zipOnly?'Refinement ZIP prepared. Extract it into the same repository before sending the prompt.':'Refinement brief saved. Existing PBI documents have not been changed by the form.');}
@@ -168,6 +170,22 @@ async function loadDraft(){config=await activeConfig();const folder=selectedPbi(
  $('attachments').value='';$('attachments').onchange();showStep(Math.max(1,STEPS.indexOf(r.wizard.step)+1));msg('Draft loaded from '+folder+'. Saving updates this folder; earlier versions go to its history folder.');}
 action('loadDraft',loadDraft);
 async function stateOf(folder){const raw=await PBI.read(root,folder+'/pbi-state.json');if(raw===null)throw Error('This PBI has no pbi-state.json yet. Start the analysis in Copilot first.');try{return JSON.parse(raw);}catch{throw Error('pbi-state.json is not valid JSON. Ask the agent to repair it.');}}
+const decisionDialog=document.createElement('dialog');decisionDialog.id='decisionDialog';decisionDialog.className='wide';decisionDialog.setAttribute('aria-label','Business decisions');
+const decisionHost=$('questionBox');decisionHost.parentNode?.insertBefore(decisionDialog,decisionHost);
+let decisionSession=null;
+function closeDecisionDialog(){decisionDialog.close?.();decisionHost.classList.add('hidden');decisionSession=null;}
+function openDecisionDialog(){if(decisionDialog.showModal){decisionDialog.append(decisionHost);if(!decisionDialog.open)decisionDialog.showModal();}}
+decisionDialog.oncancel=()=>{closeDecisionDialog();};
+const decisionActions=document.createElement('div');decisionActions.className='buttons';
+async function saveDecisionReview(draft){if(!decisionSession)throw Error('Reload the questions first.');const session=decisionSession;
+ const answers=[...$('questionList').children].map(section=>({...section.decisionAnswer(),by:$('answeredBy').value}));
+ for(const [source,digest] of session.sourceFingerprints){const bytes=await PBI.readBytes(root,source),current=bytes===null?null:await PBI.hashBytes(bytes);if(current!==digest)throw Error('Source evidence changed since this popup opened. Reload the questions before saving.');}
+ await PBI.recordAnswers(root,session.folder,answers,{draft,expectedState:session.expectedState});
+ reviewing=null;$('approveBox').classList.add('hidden');$('reviewCards').replaceChildren();
+ closeDecisionDialog();await loadQuestions();if(draft)closeDecisionDialog();
+ msg(draft?'Decision draft saved. No answers were approved.':'Selected answers saved in the decision log. Unanswered questions remain open.');await syncJourney();}
+for(const [label,draft] of [['Save Answers',false],['Save Draft / Decide Later',true],['Cancel',null]]){const button=document.createElement('button');button.textContent=label;button.className=draft===false?'':'secondary';button.onclick=()=>draft===null?closeDecisionDialog():runAction(()=>saveDecisionReview(draft));decisionActions.append(button);}
+decisionHost.append(decisionActions);
 function questionCard(q,state,invalidEvidence){
  const options=(Array.isArray(q.options)?q.options:[]).filter(o=>o&&o.key),reason=q.recommendationWhy||q.recommendationReason||q.recommendationExplanation;
  const ids=[...new Set(Array.isArray(q.recommendationEvidence)?q.recommendationEvidence:[])],evidence=Array.isArray(state.evidence)?state.evidence:[],criteria=Array.isArray(state.acceptanceCriteria)?state.acceptanceCriteria:[],decisions=Array.isArray(state.decisions)?state.decisions:[],rules=Array.isArray(state.rules)?state.rules:[];
@@ -189,7 +207,7 @@ function questionCard(q,state,invalidEvidence){
  if(q.answer?.text)info('Previously recorded answer',q.answer.text);
  const label=document.createElement('label');label.textContent='Your answer';const select=document.createElement('select');
  select.append(new Option('Choose an option',''));for(const o of options)select.append(new Option('Option '+o.key+'. '+o.text+(recommended===o?' (recommended)':''),o.key));
- select.append(new Option('Custom answer','custom'));if(q.answer?.option)select.value=q.answer.option;
+ select.append(new Option('Custom answer','custom'),new Option('Decide Later','later'));if(q.answer?.option)select.value=q.answer.option;
  const customLabel=document.createElement('label');customLabel.textContent='Custom answer';const custom=document.createElement('textarea');custom.value=q.answer?.option==='custom'?q.answer.text||'':'';
  custom.classList.toggle('hidden',select.value!=='custom');select.onchange=()=>custom.classList.toggle('hidden',select.value!=='custom');
  section.append(label,select,customLabel,custom);
@@ -199,22 +217,41 @@ function questionCard(q,state,invalidEvidence){
   const note=result.decision.supersedes?' (earlier decision kept as superseded)':'';await loadQuestions();msg('Saved '+result.decision.id+' for '+q.id+note+'.');});
  buttons.append(save);
  if(q.status!=='deferred'){const defer=document.createElement('button');defer.className='secondary';defer.textContent='Decide later';defer.onclick=()=>runAction(async()=>{await PBI.recordSkip(root,selectedPbi(),q.id);await loadQuestions();msg(q.id+' deferred. It remains unresolved and will not be treated as approval.');});buttons.append(defer);}
- section.append(buttons);return section;
+ buttons.style.display='none';
+ const choices=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent='Your answer';choices.append(legend);
+ const basis=PBI.questionBasis(state,q),draft=q.draftAnswer?.basis===basis?q.draftAnswer:null;
+ if(draft){select.value=draft.option;custom.value=draft.text||'';}
+ else if(q.evidenceChanged)select.value='';
+ else if(!q.answer&&recommended&&references.every(e=>e.kind!=='external'&&(e.kind!=='repo-file'||e.sha256)))select.value=recommended.key;
+ const radios=[];
+ for(const option of [...options,{key:'custom',text:'Custom Answer'},{key:'later',text:'Decide Later'}]){const row=document.createElement('label'),radio=document.createElement('input'),caption=document.createElement('span');row.className='radio';radio.type='radio';radio.name='answer-'+q.id;radio.value=option.key;radio.checked=select.value===option.key;
+  caption.textContent=(['custom','later'].includes(option.key)?'':'Option '+option.key+'. ')+option.text+(recommended?.key===option.key?' - RECOMMENDED':'');
+  radio.onchange=()=>{select.value=radio.value;for(const other of radios)other.checked=other===radio;select.onchange();};radios.push(radio);row.append(radio,caption);choices.append(row);}
+ select.classList.add('hidden');label.classList.add('hidden');customLabel.classList.toggle('hidden',select.value!=='custom');
+ const previousChange=select.onchange;select.onchange=()=>{previousChange();customLabel.classList.toggle('hidden',select.value!=='custom');for(const radio of radios)radio.checked=radio.value===select.value;};select.onchange();
+ section.decisionAnswer=()=>({id:q.id,option:select.value,custom:custom.value,invalidate:q.evidenceChanged===true});
+ section.append(choices,buttons);return section;
 }
-async function loadQuestions(id){needRoot();const s=await stateOf(selectedPbi()),p=PBI.questionProgress(s),all=(Array.isArray(s.questions)?s.questions:[]).filter(q=>q&&typeof q.id==='string');
- const questions=id?all.filter(q=>q.id===id):all.filter(q=>q.status!=='superseded'&&!PBI.READINESS.questionResolved.includes(q.status));
+async function loadQuestions(id){needRoot();const folder=selectedPbi(),s=await stateOf(folder),expectedState=JSON.stringify(s),p=PBI.questionProgress(s),all=(Array.isArray(s.questions)?s.questions:[]).filter(q=>q&&typeof q.id==='string');
+ let questions=id?all.filter(q=>q.id===id):all.filter(q=>q.status!=='superseded'&&!PBI.READINESS.questionResolved.includes(q.status));
  if(id&&!questions.length)throw Error('Question '+id+' is not in this PBI.');
- if(!questions.length){$('questionBox').classList.add('hidden');$('questionList').replaceChildren();return 'No unresolved business questions: '+p.answered+' of '+p.total+' answered'+(p.deferred.length?'; decide later: '+p.deferred.join(', '):'')+'.';}
- const needed=new Set(questions.flatMap(q=>Array.isArray(q.recommendationEvidence)?q.recommendationEvidence:[])),sources=new Map(),invalidEvidence=new Set();
+ const needed=new Set(all.flatMap(q=>[...(q.evidence||[]),...(q.recommendationEvidence||[])])),sources=new Map(),invalidEvidence=new Set(),sourceFingerprints=new Map();
  for(const e of Array.isArray(s.evidence)?s.evidence:[]){if(!e||!needed.has(e.id)||e.kind!=='repo-file'||e.stale===true)continue;
   try{PBI.safePath(e.source);}catch{invalidEvidence.add(e.id);continue;}
   if(!sources.has(e.source))sources.set(e.source,[]);sources.get(e.source).push(e);}
  for(const [source,entries] of sources){let bytes;try{bytes=await PBI.readBytes(root,source);}catch(e){if(e.name!=='TypeMismatchError')throw e;bytes=null;}
-  const digest=bytes!==null&&entries.some(e=>typeof e.sha256==='string')?await PBI.hashBytes(bytes):null;
+  const digest=bytes!==null?await PBI.hashBytes(bytes):null;sourceFingerprints.set(source,digest);
   for(const e of entries)if(bytes===null||(typeof e.sha256==='string'&&e.sha256.toLowerCase()!==digest))invalidEvidence.add(e.id);}
+ for(const q of all){if(q.status==='superseded'||!PBI.READINESS.questionResolved.includes(q.status))continue;
+  if((q.answerBasis&&q.answerBasis!==PBI.questionBasis(s,q))||[...(q.evidence||[]),...(q.recommendationEvidence||[])].some(id=>invalidEvidence.has(id)||(s.evidence||[]).some(e=>e.id===id&&e.stale))){q.evidenceChanged=true;if(!id&&!questions.includes(q))questions.push(q);}}
+ if(!questions.length){closeDecisionDialog();$('questionList').replaceChildren();return 'No unresolved business questions: '+p.answered+' of '+p.total+' answered'+(p.deferred.length?'; decide later: '+p.deferred.join(', '):'')+'.';}
+ decisionSession={folder,expectedState,sourceFingerprints};
  $('questionBox').classList.remove('hidden');$('questionProgress').textContent=(id?'Editing '+id+'. ':'')+questions.length+' unresolved question(s) shown together; '+p.answered+' already answered and preserved.';
- $('questionList').replaceChildren(...questions.map(q=>questionCard(q,s,invalidEvidence)));return '';}
+ $('questionList').replaceChildren(...questions.map(q=>questionCard(q,s,invalidEvidence)));openDecisionDialog();return '';}
 action('loadQuestions',async()=>{const info=await loadQuestions();msg(info||'Answer the independent questions below, enter custom answers when needed, or defer a question.');});
+const selectExistingPbi=$('existingPbi').onchange;
+$('existingPbi').onchange=()=>{selectExistingPbi();syncJourney();const folder=$('existingPbi').value;if(folder)setTimeout(()=>{if($('existingPbi').value===folder)runAction(async()=>{if(await PBI.read(root,folder+'/pbi-state.json'))await loadQuestions();});},0);};
+window.addEventListener?.('focus',()=>{if(root&&!decisionDialog.open&&$('existingPbi').value)runAction(async()=>{if(await PBI.read(root,selectedPbi()+'/pbi-state.json'))await loadQuestions();});});
 action('editPrevious',async()=>{needRoot();const p=PBI.questionProgress(await stateOf(selectedPbi())),prev=lastAnswered||p.answeredQuestions.filter(q=>q.answeredAt).sort((a,b)=>String(a.answeredAt).localeCompare(String(b.answeredAt))).map(q=>q.id).pop();
  if(!prev)throw Error('No answered question to edit yet.');await loadQuestions(prev);msg('Change the answer and submit. The earlier decision is kept as superseded.');});
 action('showDecisions',async()=>{needRoot();const d=PBI.questionProgress(await stateOf(selectedPbi())).decisions;msg(d.length?d.map(x=>x.id+' · '+(x.status||'?')+(x.supersedes?' · replaces '+x.supersedes:'')+(x.decision?'\n  '+x.decision:'')+(x.evidence?'\n  '+x.evidence:'')).join('\n'):'No decisions recorded for this PBI yet.');});action('refineZip',()=>createRefinement(true));
@@ -245,8 +282,31 @@ action('cleanupComparison',async()=>{needRoot();const r=await PBI.cleanupCompari
 function selectedPbi(){const folder=$('existingPbi').value||$('manualPbi').value.trim();if(!folder)throw Error('Find and select an existing PBI first.');return folder;}
 action('exportHandoff',async()=>{needRoot();const r=await PBI.exportHandoff(root,selectedPbi()),h=r.handoff;msg('Wrote '+r.files.join(' and ')+'\nReadiness: '+r.report.computedStatus+' · rules: '+h.rules.length+' · branches: '+h.rules.reduce((n,x)=>n+x.branches.length,0)+' · open gaps: '+h.gaps.length+'\nGive business-rules.json to the development agent. Earlier exports were copied to history/.');});
 action('checkReadiness',async()=>{needRoot();const r=await PBI.checkPbi(root,selectedPbi());msg('Readiness for '+r.pbi+'\nComputed status: '+r.computedStatus+(r.claimedStatus?' (claimed: '+r.claimedStatus+')':'')+'\nFinal PBIs allowed: '+(r.finalAllowed?'yes':'no')+'\n\n'+(r.issues.map(x=>'['+x.cap+'] '+x.code+' '+x.ref+': '+x.message).join('\n')||'No issues found.')+(PBI.READINESS.statuses.indexOf(r.computedStatus)>=3?'\n\nApproval basis (the final approval is recorded by Review & approve; give the agent a block only for an external PO/BA or technical approval it records):\n'+Object.entries(r.review).map(([k,v])=>k+' (fingerprint '+v.fingerprint+'): '+JSON.stringify(v.basis)).join('\n'):'')+'\n\nThis checks completeness and consistency only, not business correctness or who approved.',!r.finalAllowed);});
-action('discoverSources',async()=>{needRoot();const m=await PBI.discoverSources(root,needConfig());msg(['Wrote '+PBI.SOURCE_MAP.replace('source-map.json','SOURCE-MAP.md')+' ('+m.filesScanned+' files scanned'+(m.truncated?', stopped early':'')+').','Solutions: '+m.solutions.length+' · projects: '+m.projects.length,...m.sources.map(s=>s.key+': '+s.status+(s.checkedFile?' (read '+s.checkedFile+')':s.reason?' ('+s.reason+')':''))].join('\n'),m.sources.some(s=>s.status==='configured-inaccessible'));});
-action('refreshEvidence',async()=>{needRoot();const r=await PBI.refreshEvidence(root);msg(r.checked||r.skipped.length?'Checked '+r.checked+' evidence entries. Newly fingerprinted: '+r.fingerprinted.length+'. Stale: '+(r.stale.join(', ')||'none')+'.'+(r.skipped.length?' Outside this repository (not fingerprinted): '+r.skipped.join(', ')+'.':'')+(r.written?' Index updated.':' No changes.'):'No evidence index found at '+PBI.KNOWLEDGE+'. The agent creates it when it records reusable knowledge.',r.stale.length>0);});
+action('discoverSources',async()=>{needRoot();const {result:m,metrics}=await PBI.measure(()=>PBI.discoverSources(root,needConfig()));showRun('Discover sources',metrics);const ch=m.changes;lastAccess=Object.fromEntries(m.sources.map(s=>[s.key,s.status]));
+ msg([(m.written?'Wrote ':'Checked (no changes written) ')+PBI.SOURCE_MAP.replace('source-map.json','SOURCE-MAP.md')+' ('+m.filesScanned+' files scanned'+(m.truncated?', stopped early':'')+').','Solutions: '+m.solutions.length+' · projects: '+m.projects.length,...m.sources.map(s=>s.key+': '+s.status+(s.checkedFile?' (read '+s.checkedFile+')':s.reason?' ('+s.reason+')':'')),
+  'Since the last map: '+ch.added.length+' added, '+ch.modified.length+' changed, '+ch.removed.length+' removed; '+ch.reused+' unchanged solution/project file(s) reused without rereading.',
+  (m.repository?'Repository: '+(m.repository.branch||'detached')+' @ '+(m.repository.commit||'unknown').slice(0,12)+'. ':'')+m.fileIndex.files+' source file names indexed in '+m.fileIndex.path.split('/').pop()+'.'].join('\n'),m.sources.some(s=>s.status==='configured-inaccessible'));await syncJourney();});
+action('refreshEvidence',async()=>{needRoot();const {result:r,metrics}=await PBI.measure(()=>PBI.refreshEvidence(root));showRun('Refresh evidence',metrics);msg(r.checked||r.skipped.length?'Checked '+r.checked+' evidence entries. Newly fingerprinted: '+r.fingerprinted.length+'. Reusable unchanged: '+r.reusable.length+'. Stale: '+(r.stale.join(', ')||'none')+'.'+(r.skipped.length?' Outside this repository (not fingerprinted): '+r.skipped.join(', ')+'.':'')+(r.written?' Index updated.':' No changes.'):'No evidence index found at '+PBI.KNOWLEDGE+'. The agent creates it when it records reusable knowledge.',r.stale.length>0);});
+
+// ---- Run details and the journey bar ----
+// Counts of what an operation actually did stay collapsed; nothing is sent anywhere.
+function showRun(label,m){$('runDetailsText').textContent=label+'\nFile opens: '+m.fileOpens+' ('+m.distinctFiles+' distinct, '+m.repeatedOpens+' repeated, '+m.missingOpens+' missing)\nBytes read: '+m.bytesRead+'\nDirectory entries listed: '+m.entriesListed+' · size checks: '+m.statChecks+'\nWrites: '+m.writes+' ('+m.bytesWritten+' bytes) · unchanged writes skipped: '+m.skippedWrites+'\nElapsed: '+m.elapsedMs+' ms\nModel tokens and agent tool calls are reported by the chat host, not by this page.';$('runDetails').classList.remove('hidden');}
+// The journey follows saved files only: repositories, PBI, analysis, answers, review, approval. It never blocks an action.
+const JOURNEY=['repos','enter','analyze','questions','review','approve'];let lastAccess;
+function showJourney(stage){JOURNEY.forEach((k,i)=>{const li=$('journey-'+k);li.classList.toggle('done',i<stage);li.setAttribute('aria-current',i===stage?'step':'false');});}
+async function syncJourney(){
+ try{
+  if(!root||!config){showJourney(0);return;}
+  let folder=null;try{folder=selectedPbi();}catch{}
+  if(!folder){showJourney(1);return;}
+  const raw=await PBI.read(root,folder+'/pbi-state.json');
+  if(raw===null){showJourney(2);return;}
+  const st=JSON.parse(raw),progress=PBI.questionProgress(st);
+  if(progress.next||progress.deferred.length){showJourney(3);return;}
+  const check=await PBI.checkPbi(root,folder);
+  showJourney(check.computedStatus==='Development-Ready'&&check.finalAllowed?6:PBI.approvalBlockers(check).length?4:5);
+ }catch{showJourney(root&&config?1:0);}
+}
 
 // ---- Review & approve: one final approval, generation and downloads ----
 let reviewing=null;
@@ -256,9 +316,10 @@ async function loadReview(){needRoot();const folder=selectedPbi(),r=await PBI.ch
  // A credential in a working document blocks approval; instruction-like text is shown, never removed.
  const blockers=[...PBI.approvalBlockers(r),...cr.blocking.map(s=>({code:'SENSITIVE_DATA',ref:s.path,message:s.kind+' ('+s.count+'). Ask the agent to replace it with [REDACTED: '+s.kind+'].'}))];
  let st={},req={};try{st=JSON.parse(await PBI.read(root,folder+'/pbi-state.json')||'{}')||{};}catch{}try{req=JSON.parse(await PBI.read(root,folder+'/pbi.json')||'{}')||{};}catch{}
- const L=x=>Array.isArray(x)?x.filter(y=>y&&typeof y==='object'):[],codes=new Set(r.issues.map(i=>i.code)),t=PBI.TARGETS[req.application]||PBI.TARGETS.unsure,applies=k=>st.paths?.[k]?.applies===true;
+ const L=x=>Array.isArray(x)?x.filter(y=>y&&typeof y==='object'):[],codes=new Set(r.issues.map(i=>i.code)),t=PBI.TARGETS[PBI.targetKey(req.application)]||PBI.TARGETS.unsure,applies=k=>st.paths?.[k]?.applies===true;
  const reqIssues=r.issues.filter(i=>/^(NO_RULES|NO_ACS|CONTENT_MISSING|MISSING_COVERAGE|AC_|RULE_INCOMPLETE)/.test(i.code));
- const ev=L(st.evidence),lv=['code','registration','reach','runtime'].map(l=>ev.filter(e=>e.level===l).length+' '+l).join(', ');
+ const ev=L(st.evidence),lv=['code','registration','reach','runtime'].map(l=>ev.filter(e=>e.level===l).length+' '+l).join(', '),warnings=r.warnings||[],vc=v=>ev.filter(e=>(e.verification||'VERIFIED')===v).length;
+ const gapText=ref=>{const [rid,gid]=String(ref).split('/'),g=L(L(st.rules).find(x=>x.id===rid)?.gaps).find(x=>x.id===gid);return g?.description?' — '+g.description:'';};
  const owned=k=>L(st.rules).filter(x=>x.paths?.[k]&&x.paths[k].status!=='not-applicable').length;
  const q=L(st.questions),open=q.filter(x=>x.blocking===true&&!['resolved','answered','approved','not-applicable','superseded'].includes(x.status));
  if(reviewedSnapshot!==await PBI.reviewFingerprint(root,folder))throw Error('PBI changed while it was being reviewed. Reload the review before approving.');
@@ -266,13 +327,18 @@ async function loadReview(){needRoot();const folder=selectedPbi(),r=await PBI.ch
  $('reviewCards').replaceChildren(
   card('PBI',(req.number?'PBI '+req.number+' · ':'')+(req.title||st.pbi||folder)+'\n'+folder+'\nDevelopment target: '+(PBI.APPLICATIONS[req.application]||'Not recorded')),
   card('Requirements and acceptance criteria',L(st.rules).length+' business rules · '+L(st.acceptanceCriteria).length+' acceptance criteria\n'+(reqIssues.length?'Incomplete: '+reqIssues.map(i=>i.code+' '+i.ref).join(', '):'Complete: every rule has its required criteria.'),reqIssues.length?'bad':'good'),
-  card('Repository analysis','Legacy: '+(req.legacy?req.legacy.name+' ('+req.legacy.path+')':'not recorded')+'\nAnalysis mode: '+(PBI.ANALYSIS_MODES[req.analysisMode]||'Deep')+'\nPaths in scope: '+(Object.keys(st.paths||{}).filter(applies).join(', ')||'none')+'\nEvidence: '+ev.length+' records ('+lv+')'+(ev.some(e=>e.kind==='external')?'\nExternal evidence uses recorded revisions; current source freshness outside this repository is not checked.':'')),
+  card('Repository analysis','Legacy: '+(req.legacy?req.legacy.name+' ('+req.legacy.path+')':'not recorded')+'\nAnalysis mode: '+(PBI.ANALYSIS_MODES[req.analysisMode]||'Deep')+'\nPaths in scope: '+(Object.keys(st.paths||{}).filter(applies).join(', ')||'none')+'\nEvidence: '+ev.length+' records ('+lv+'); '+vc('VERIFIED')+' verified, '+vc('ASSUMED')+' assumed, '+vc('UNAVAILABLE')+' unavailable'+(ev.some(e=>e.kind==='external')?'\nExternal evidence uses recorded revisions; current source freshness outside this repository is not checked.':'')),
   card('Implementation approach',(t.implement.length?t.implement.map(k=>(k==='ui'?'Shared Angular UI':k.toUpperCase())+': '+(applies(k)?owned(k)+' rule(s)':'not applying ('+(st.paths?.[k]?.reason||'no reason')+')')).join('\n')+'\nDeliverables: '+t.documents.filter(n=>applies({'PBI-CDMS.md':'cdms','PBI-DAB.md':'dab','PBI-UI.md':'ui'}[n])).join(', '):'No development target recorded: one REFINED-PBI.md.')),
   card('Business decisions',L(st.decisions).filter(d=>d.status==='approved').length+' approved decision(s)\n'+(open.length?'Open blocking questions: '+open.map(x=>x.id).join(', '):'No open blocking questions')+(q.some(x=>x.status==='deferred')?'\nDecide later: '+q.filter(x=>x.status==='deferred').map(x=>x.id).join(', '):''),open.length?'bad':'good'),
   card('Untrusted content and sensitive data',(cr.secrets.length?'Values that look like credentials: '+cr.secrets.map(s=>s.path+': '+s.kind+' ('+s.count+')').join(', '):'No credentials detected.')+'\n'+(cr.instructions.length?'Instruction-like text (untrusted, not followed):\n'+cr.instructions.slice(0,8).map(w=>'- '+w.source+':'+w.line+' '+w.kind+': "'+w.text+'"').join('\n')+(cr.instructions.length>8?'\n… and '+(cr.instructions.length-8)+' more':''):'No instruction-like text detected.')+(cr.unscanned.length?'\nNot scanned (binary or large): '+cr.unscanned.join(', '):''),cr.blocking.length||cr.instructions.length?'bad':'good'),
-  card('Technical readiness','Status: '+r.computedStatus+'\n'+(blockers.length?blockers.map(i=>'['+i.code+'] '+i.ref+': '+i.message).join('\n'):'No blockers. Your approval is the only step left.'+(codes.has('APPROVAL_STALE')?' The earlier approval is stale because the content changed.':'')),blockers.length?'bad':'good'));
- $('approveBox').classList.remove('hidden');$('approveGenerate').dataset.blocked=blockers.length?'1':'';$('approveGenerate').disabled=blockers.length>0;
- msg(blockers.length?'Not ready for approval: '+blockers.length+' blocker(s) are listed under Technical readiness. Request Changes sends them to the agent.':'Ready for your approval. Approve & Generate records it and generates the final PBIs.',blockers.length>0);}
+  card('Technical readiness','Status: '+r.computedStatus+'\n'+(blockers.length?blockers.map(i=>'['+i.code+'] '+i.ref+': '+i.message).join('\n'):'No blockers. Your approval is the only step left.'+(codes.has('APPROVAL_STALE')?' The earlier approval is stale because the content changed.':'')),blockers.length?'bad':'good'),...(warnings.length?[card('Warnings (these do not block approval)',warnings.map(w=>'['+w.impact+'] '+w.ref+(w.code==='GAP_OPEN'?gapText(w.ref):': '+w.message)).join('\n'),'')]:[]));
+ const plan=req.analysisPlan?.passes||[];
+ $('evidenceDetailsText').textContent=[plan.length?'Analysis plan\n'+plan.map((p,i)=>(i+1)+'. '+p.key+': '+p.scope).join('\n')+(req.analysisPlan.ui?'\nShared UI: '+req.analysisPlan.ui.reason:''):'',
+  'Evidence records ('+ev.length+')\n'+(ev.map(e=>'- '+e.id+' ['+e.level+', '+(e.verification||'VERIFIED')+(e.stale===true?', stale':'')+'] '+e.source+' — '+e.location+(e.revision?' ('+e.revision+')':'')+': '+e.summary).join('\n')||'None recorded.'),
+  warnings.length?'Warnings ('+warnings.length+')\n'+warnings.map(w=>'- ['+w.impact+'] '+w.ref+': '+w.message+(w.code==='GAP_OPEN'?gapText(w.ref):'')).join('\n'):''].filter(Boolean).join('\n\n');
+ $('evidenceDetails').classList.remove('hidden');$('approveBox').classList.remove('hidden');$('approveGenerate').dataset.blocked=blockers.length?'1':'';$('approveGenerate').disabled=blockers.length>0;
+ msg(blockers.length?'Not ready for approval: '+blockers.length+' blocker(s) are listed under Technical readiness. Request Changes sends them to the agent.':'Ready for your approval. Approve & Generate records it and generates the final PBIs.',blockers.length>0);
+ showJourney(r.computedStatus==='Development-Ready'&&r.finalAllowed?6:blockers.length?4:5);}
 action('loadReview',loadReview);
 function needReview(){if(!reviewing||reviewing.folder!==selectedPbi())throw Error('Review the selected PBI first.');return reviewing;}
 action('approveGenerate',async()=>{const v=needReview();if(v.blockers.length)throw Error('Resolve the blockers under Technical readiness first.');if(!$('approverName').value.trim())throw Error('Enter your name to approve.');

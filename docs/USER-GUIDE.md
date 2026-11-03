@@ -1,13 +1,21 @@
-# Akzo SDD PBI Builder 5.2.1: user guide
+# Akzo SDD PBI Builder 5.3.0: user guide
 
 You do not need to know the templates, the code or terms such as plugins or workflows. Describe
-what you need; the builder asks only for business decisions.
+what you need in Copilot Chat; the agent investigates configured source and asks only for business
+decisions. The HTML form is optional for setup, evidence inspection, dashboards and downloads.
 
-The workflow is: **Start PBI → enter requirements → select the legacy repository → select the
-development target → deep analysis → review → approve once → generate → preview and download.**
+The workflow is: **Configure repositories → Describe the PBI in Chat → Analyze existing flow →
+Answer business questions in Chat → Review and approve in Chat → Generate.** The form's journey
+bar is optional and reads saved files.
 
 ## Start a PBI
-**In the form** (recommended). Open `playbook/pbi-builder/PBI-Builder.html`, or the package's
+**In Copilot Chat** (recommended). Select "Akzo SDD PBI Builder - <your project>" and type
+`Start PBI` (or Create PBI, New PBI, Start Development or Implement PBI). The agent asks only for
+missing details together, then investigates accessible configured repositories without asking
+permission to inspect files. It reports source access, verified behavior, differences and only
+material unresolved business decisions.
+
+**Optional form.** Open `playbook/pbi-builder/PBI-Builder.html`, or the package's
 `Akzo-SDD-PBI-Builder.html`, choose the repository folder and open the **New PBI** tab. It has
 four steps:
 
@@ -38,14 +46,9 @@ four steps:
 If the PBI number already exists, you choose **Resume**, **Review** or **Start New Version** (a new
 folder). Nothing is overwritten.
 
-**In Copilot.** Select "Akzo SDD PBI Builder - <your project>" and type `Start PBI` (or Create
-PBI, New PBI, Start Development, Implement PBI). The agent asks for what is missing in one
-message, then the legacy repository and the development target. Start Development and
-Implement PBI prepare the PBI; they never change application code.
-
 The agent then investigates on its own: it reads relevant accessible code (never only file names
-or older analysis documents), reports inaccessible sources, marks each finding Verified, Proposed,
-Unverified or Contradicted, and reports progress at milestones.
+or older analysis documents), reports inaccessible sources, distinguishes verified behavior from
+inferences and unavailable evidence, and reports progress at milestones.
 
 ## Answer business questions
 After investigating, the agent asks only what the request and the code cannot settle, all
@@ -64,14 +67,13 @@ Conflicting acceptance criteria are always asked about, never resolved silently.
 
 | Where | How you answer |
 | --- | --- |
-| VS Code | Choose an option in the question control Copilot shows, or type a custom answer |
-| Visual Studio, or when no control appears | Type `1`, `2`, `3`… (the last two are "Custom answer" and "Decide later"); `back` edits your previous answer, `status` shows progress, `why` explains the question |
-| The form, Continue tab, **Answer business questions** | Load questions, pick an answer or write a custom one, enter your name, Submit. Edit previous answer and Decide later are there too |
+| Copilot Chat | Use the native question control when available; otherwise reply with a numbered choice, a custom answer, or `Decide Later` |
+| The optional form, Continue tab, **Answer business questions** | Load questions, pick an answer or write a custom one, enter your name, Submit. Edit previous answer and Decide later are there too |
 
-Your answer is saved at once with your name and the time. It decides that one question; it is not
-the approval of the PBI. Answered questions are not asked again unless the requirement changes.
-The agent keeps its own history copies of every document it changes; you never run a snapshot
-command.
+Confirmed answers are recorded with their decision history; a recommendation is never silently
+approved. Decide Later keeps a material question open. Answered questions are not asked again unless
+the supporting evidence or requirement changes. The agent saves drafts and its history copies as it
+works; routine internal file operations do not require your approval.
 
 ## Other commands
 | Command | What it does |
@@ -85,8 +87,8 @@ command.
 | `Extract Plugin Rules 305915 FormulaPlugin` | Writes PLUGIN-RULES.md: each validation and business rule with its condition, exact error message, data needed, whether DAB must implement it, and test cases |
 | `Analyze Workflows 305915 Create Paint System` | Writes PLUGIN-WORKFLOW-COVERAGE.md for the classic workflows and custom workflow activities on that operation |
 | `Generate Acceptance Criteria 305915` | Proposed Given/When/Then criteria for review |
-| `Export PBI 305915` | Points to Review & approve; before approval, the draft clearly marked |
-| `Validate PBI 305915` | Explains the readiness check result |
+| `Export PBI 305915` | Prepares the refined draft in Chat; final artifacts require explicit approval |
+| `Validate PBI 305915` | Runs the available readiness check and explains the result in Chat |
 
 These are phrases for the agent, not editor commands. The number can also be a title or folder.
 
@@ -97,27 +99,46 @@ These are phrases for the agent, not editor commands. The number can also be a t
   an export. It never guesses a file's content.
 - Nothing in an attachment counts as an approved requirement just because it is written there.
 
-## Review, approve once and download
-When the analysis is complete the agent sets the draft to Ready for Review and sends you to the
-form: **Continue** tab, select the PBI, **Review selected PBI**. The review shows seven cards: the
+## Review, approve once and generate
+When the analysis is complete the agent sets the draft to Ready for Review, runs the readiness
+check, and summarizes the PBI, source findings, implementation differences, confirmed decisions,
+blockers and material warnings in Chat. It offers **Approve & Generate**, **Request Changes** and
+**Save Draft / Decide Later**. Use an explicit reply; silence and recommendations are not approval.
+In VS Code, approval calls the installed PowerShell `ApproveAndGenerate` action; the agent supplies
+the current review fingerprint and the approver name you provide. In an IDE that cannot execute
+commands, it gives you the equivalent installer command to run. The installer rechecks readiness
+and reviewed content before recording approval. When PowerShell scripts are blocked, the optional
+form can still perform its browser-based workflow.
+When the native question control is unavailable, the agent uses numbered choices in Chat. The
+review covers the same information as the optional form's **Continue** tab, **Review selected PBI**.
+That screen shows seven cards: the
 PBI, requirements and acceptance criteria, repository analysis, implementation approach (CDMS,
 DAB and shared UI), business decisions, untrusted content and sensitive data, and technical
-readiness with any blockers. Then:
+readiness with any blockers. When something does not block the PBI (a gap graded WARNING or
+INFORMATIONAL, or evidence the agent could only assume or could not read) an eighth card,
+**Warnings (these do not block approval)**, lists it, and the collapsed **Detailed evidence,
+analysis plan and warnings** panel shows the full evidence list. The same warnings appear under
+"Open issues and assumptions" in every generated Markdown, JSON and DOCX.
 
 - **Approve & Generate** (needs your name): records your final approval, bound to a fingerprint
   of exactly what you reviewed, sets the PBI to Development-Ready and generates the final PBIs
   for the target, each as Markdown, Word (DOCX) and JSON. Every file is read back and checked;
   if anything fails, the earlier files are restored and nothing is approved. It is disabled
-  while a blocker remains.
+  in the optional form while a blocker remains; chat will not generate when readiness has blockers.
 - **Request Changes**: saves your change request as a refinement brief and gives you the prompt
   for the agent. Nothing is approved.
-- **Save Draft**: saves the review and your note in the PBI's history folder. Nothing is approved.
+- **Save Draft / Decide Later**: keeps the current draft and unresolved questions without
+  approval.
 
-After generation the **PBI Generated Successfully** window lists each PBI (for Both: CDMS, DAB and
-shared Angular UI) with Download DOCX, Download MD, Download JSON and Preview, plus **Download
-Complete Package — ZIP** with every PBI and the supporting documents. Downloads are read from the
-generated files and refused if a file changed since. Where the browser supports it you choose
-where to save. Browsers cannot open File Explorer, so the window shows the PBI folder instead.
+After generation the final Markdown, JSON and DOCX artifacts are written and verified by the
+existing installer action (Chat) or browser generator (form). For the Both target, shared UI work
+appears once in PBI-UI.md.
+The optional form offers a download dialog and ZIP; Chat remains the normal path and does not
+require navigating to HTML. In the form, the download dialog provides DOCX, Markdown, JSON,
+preview and **Download Complete Package — ZIP** with every PBI and supporting documents.
+Downloads are read from the generated files and refused if a file changed since. Where the browser
+supports it you choose where to save. Browsers cannot open File Explorer, so the window shows the
+PBI folder instead.
 
 Your approval is the approval of the PBI draft only. PO/BA, security, architecture or technical
 sign-off that your organization requires is a separate step. A material change to the reviewed
@@ -147,6 +168,16 @@ BUSINESS-RULE-OWNERSHIP.md if you want them as separate documents.
 ## The repository is the source of truth
 PBI -> repository discovery -> source investigation -> business-rule validation -> gaps ->
 decisions only when blocked -> readiness -> refined PBI and SDD handoff.
+
+**Evidence is collected automatically and only as much as the decision needs.** The agent
+classifies each evidence record as VERIFIED (read in current source), ASSUMED or UNAVAILABLE, and
+each open gap as BLOCKING, WARNING or INFORMATIONAL. Only a BLOCKING gap, or evidence a claim
+cannot do without, holds a PBI back; unrelated legacy side effects and optional metadata become
+warnings. Discover sources (Continue tab) maps solutions, entry points and the branch and commit
+once, writes a source file-name index, and later runs reread only what changed. Refresh evidence
+fingerprints marks a stored finding stale when its file, or a file it depends on, changes;
+unchanged findings are reused by later PBIs. Decisions and answers are never reused across PBIs.
+The collapsed **Run details** below the status line shows what an operation actually read and wrote.
 
 The agent reads the application repository itself. It never needs, writes or waits for a separate
 end-to-end analysis document. Older analysis documents, including the ColorDMS reports the form
