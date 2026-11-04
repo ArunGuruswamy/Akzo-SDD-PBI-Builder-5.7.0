@@ -97,6 +97,15 @@ test('cosmetic line endings and JSON layout do not change the review snapshot',a
  assert.equal(await P.reviewFingerprint(root,folder),before,'JSON indentation is cosmetic');
 });
 
+test('readiness treats HTML br tags as line breaks when synchronizing multiline criteria',async t=>{
+ const {c}=await reviewCase(t),state=JSON.parse(JSON.stringify(c.state));
+ const originalCriterion=state.acceptanceCriteria[0].criterion;
+ state.acceptanceCriteria[0].criterion='Given a Draft formula,\nwhen it is released,\nthen the status is Released';
+ const draft=c.docs.draft.replace(originalCriterion,state.acceptanceCriteria[0].criterion.replace(/\n/g,'<br>'));
+ const report=await P.readiness(state,{request:'# request',draft,decisionLog:shared.LOG,files:c.docs.files},shared.PBI);
+ assert.deepEqual(issues(report,'DOC_CONTENT_MISMATCH').filter(ref=>ref==='AC-1'),[]);
+});
+
 test('UI-only covered branches require UI evidence and appear as unverified in handoff',async t=>{
  const {root,folder,c}=await reviewCase(t,'ui');
  c.state.rules[0].branches=[branch({ui:'covered'})];await writeState(root,folder,c.state);

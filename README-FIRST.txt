@@ -67,9 +67,12 @@ parameters, for example:
   (the older ColorDMS analysis documents are not installed unless you add -IncludeReferences;
   the agent investigates the repository directly and never needs them)
   powershell -File PBI-Builder-Setup.ps1 -NoGui -Action Upgrade   (all listed repositories)
-Actions: -Action Install (default), Verify, Repair, Uninstall, CheckPbi,
+Actions: -Action Install (default), Verify, Repair, Uninstall, CheckPbi, SyncPbi,
 RefreshEvidence and ApproveAndGenerate (requires the PBI, approver name and
 latest reviewed-content fingerprint). -Preview shows changes without writing.
+SyncPbi -Pbi <folder> repairs derived working-document sections from pbi-state.json,
+preserves prior versions in history, and reruns the canonical readiness checker.
+It never approves decisions or turns a conditional draft into final artifacts.
 Uninstall.cmd (same as
 Uninstall-PBIBuilder.cmd) removes setup files but always keeps PBIs, decisions,
 history and knowledge notes.

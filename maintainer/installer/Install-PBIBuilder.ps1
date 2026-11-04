@@ -24,7 +24,7 @@ Run without -RepoPath for guided mode (folder picker and prompts).
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Install', 'Verify', 'Repair', 'Uninstall', 'CheckPbi', 'RefreshEvidence', 'ApproveAndGenerate')]
+    [ValidateSet('Install', 'Verify', 'Repair', 'Uninstall', 'CheckPbi', 'SyncPbi', 'RefreshEvidence', 'ApproveAndGenerate')]
     [string]$Action = 'Install',
     [string]$RepoPath,
     [string]$ProjectName,
@@ -365,6 +365,10 @@ function Get-ReviewFingerprint([string]$folder, $sourceFiles = $null) {
                     }
                 }
                 [void]$state.Remove('status'); [void]$state.Remove('approvalHistory')
+                if ($state.ContainsKey('analysis') -and ($state['analysis'] -is [System.Collections.IDictionary])) {
+                    [void]$state['analysis'].Remove('workflow')
+                    if ($state['analysis'].Count -eq 0) { [void]$state.Remove('analysis') }
+                }
                 $approvals = $state['approvals']
                 if ($approvals -is [System.Collections.IDictionary]) { [void]$approvals.Remove('user') }
             }
@@ -399,7 +403,7 @@ function Get-ReviewFingerprint([string]$folder, $sourceFiles = $null) {
     return Get-TextHash (ConvertTo-Canon $inputs)
 }
 function Test-Meaningful($t) { return ($t -is [string]) -and (Get-Norm $t).Length -ge 12 -and -not [regex]::IsMatch($t, '(^|[^A-Za-z0-9])(TBD|TODO|TBC)([^A-Za-z0-9]|$)', 'IgnoreCase, CultureInvariant') }
-function Get-DocNorm([string]$s) { return Get-Norm ([regex]::Replace($s, '[*`]', '')) }
+function Get-DocNorm([string]$s) { return Get-Norm ([regex]::Replace(([regex]::Replace($s, '(?i)<br\s*/?>', ' ')), '[*`]', '')) }
 function Test-HasId([string]$doc, [string]$id) { return [regex]::IsMatch($doc, '(^|[^A-Za-z0-9_-])' + [regex]::Escape($id) + '([^A-Za-z0-9_-]|$)') }
 function Get-Shown($l) { if ($l -is [string]) { return $l } elseif ($null -eq $l) { return 'null' } elseif ($l -is [bool]) { if ($l) { return 'true' }; return 'false' } elseif (Test-Num $l) { return [string]$l }; return ConvertTo-Json -InputObject $l -Compress -Depth 20 }
 function Find-Id($list, $id) { foreach ($x in $list) { if ((Test-Obj $x) -and (Test-Str (Get-Prop $x 'id')) -and (Test-Same $x.id $id)) { return $x } }; return $null }
@@ -971,7 +975,7 @@ function Invoke-ApproveAndGenerate {
         throw "Generation failed; earlier files were restored. $failure"
     }
 }
-function Invoke-CheckPbi {
+function Get-PbiReport {
     if (-not $Pbi) { throw 'Use -Pbi <folder name> (the folder under playbook/pbis).' }
     $folder = $Pbi.Replace('\', '/').TrimEnd('/')
     if (-not $folder.StartsWith('playbook/pbis/', $Ordinal)) { $folder = 'playbook/pbis/' + $folder }
@@ -991,6 +995,10 @@ function Invoke-CheckPbi {
     foreach ($pair in @(@('cdmsRefined', 'CDMS-REFINED-PBI.md'), @('dabRefined', 'DAB-REFINED-PBI.md'))) { if ($null -eq $docs[$pair[0]]) { $docs[$pair[0]] = Read-Text "$folder/$($pair[1])" } }
     $r = Get-Readiness $state $docs $folder.Split('/')[-1]
     if (-not (Test-SameText (Read-Text "$folder/pbi-state.json") $raw) -or -not (Test-Same (Get-ReviewFingerprint $folder) $reviewedContent)) { throw 'PBI changed while it was being reviewed. Reload the review and try again.' }
+    return $r
+}
+function Invoke-CheckPbi {
+    $r = Get-PbiReport
     $script:LastReadiness = $r
     if ($Json) { [Console]::Out.WriteLine((ConvertTo-Json -InputObject $r -Depth 6 -Compress)) }
     else {
@@ -1007,6 +1015,119 @@ function Invoke-CheckPbi {
     return [bool]$r.finalAllowed
 }
 
+function Set-WorkingSection([string]$text, $section, [string]$body) {
+    $heads = @([regex]::Matches($text, '(?m)^(#{1,6})[ \t]+(.+?)[ \t]*\r?$'))
+    $names = @($section.title) + @($section.aliases)
+    for ($i = $heads.Count - 1; $i -ge 0; $i--) {
+        $head = $heads[$i]
+        if ($names -notcontains $head.Groups[2].Value) { continue }
+        $end = $text.Length
+        for ($j = $i + 1; $j -lt $heads.Count; $j++) { if ($heads[$j].Groups[1].Length -le $head.Groups[1].Length) { $end = $heads[$j].Index; break } }
+        $text = $text.Substring(0, $head.Index) + $text.Substring($end)
+    }
+    return $text.TrimEnd() + "`n`n## $($section.title)`n`n$body`n"
+}
+function Get-WorkingFiles($state, $docs) {
+    $files = New-Map
+    foreach ($name in $docs.Keys) { if ($null -ne $docs[$name]) { $files[$name] = $docs[$name] } }
+    foreach ($section in $Bundle.workingSections) {
+        if ((Get-Prop $section 'status') -eq $true) {
+            $text = if ($files.ContainsKey($section.file)) { $files[$section.file] } else { '# Working PBI' }
+            $approvals = Get-Prop $state 'approvals'; if ($null -eq $approvals) { $approvals = [pscustomobject]@{} }
+            $body = "Canonical status: $($state.status). See READINESS.json for the current checker result; prior narrative check counts are historical.`n`nApprovals: " + (ConvertTo-Canon $approvals) + "`n`nConditional drafting does not approve implementation or close security blockers."
+            $files[$section.file] = Set-WorkingSection $text $section $body
+            continue
+        }
+        $lines = @()
+        foreach ($record in (Get-Arr (Get-Prop $state $section.list))) {
+            $fields = @()
+            foreach ($key in $section.fields) {
+                if (-not (Test-Has $record $key)) { continue }
+                $v = Get-Prop $record $key
+                $v = if ($v -is [string]) { $v } else { ConvertTo-Canon $v }
+                $fields += $key + ': ' + ([regex]::Replace($v, '\r?\n', '<br>'))
+            }
+            $lines += '- ' + ($fields -join ' | ')
+        }
+        $body = if ($lines.Count) { $lines -join "`n" } else { 'None recorded.' }
+        $text = if ($files.ContainsKey($section.file)) { $files[$section.file] } else { '# ' + $section.file.Replace('.md', '') }
+        $files[$section.file] = Set-WorkingSection $text $section $body
+    }
+    $draft = [regex]::Replace($files['DRAFT-PBI.md'], '(?m)^Status:.*\r?$', ('Status: ' + $state.status))
+    if ($draft -notmatch '(?m)^Status:') { $draft = "Status: $($state.status)`n`n" + $draft }
+    $files['DRAFT-PBI.md'] = $draft
+    if ($docs.ContainsKey('pbi.json') -and $null -ne $docs['pbi.json']) {
+        $intake = $docs['pbi.json'] | ConvertFrom-Json
+        $before = ConvertTo-Canon $intake
+        Set-Prop $intake 'status' $state.status
+        $wizard = Get-Prop $intake 'wizard'; if (-not (Test-Obj $wizard)) { $wizard = [pscustomobject]@{} }
+        Set-Prop $wizard 'step' $(if (Test-In @('Ready for Review', 'Development-Ready') $state.status) { 'review' } else { 'analysis' })
+        Set-Prop $wizard 'status' $(if ($state.status -ceq 'Development-Ready') { 'generated' } elseif ($state.status -ceq 'Ready for Review') { 'ready-for-review' } else { 'analysis' })
+        Set-Prop $intake 'wizard' $wizard
+        if (Test-Has $state 'sourceAccess') { Set-Prop $intake 'sourceAccess' (Get-Prop $state 'sourceAccess') }
+        if (-not (Test-Same $before (ConvertTo-Canon $intake))) { $files['pbi.json'] = (ConvertTo-Json -InputObject $intake -Depth 100) + "`n" }
+    }
+    return $files
+}
+function Save-PbiFiles([string]$folder, $files, $expected) {
+    $rows = @(); $batch = Get-Batch
+    foreach ($name in $files.Keys) {
+        if (-not (Test-SafePath $name)) { throw "Invalid working document: $name" }
+        $prior = Read-Text "$folder/$name"
+        if ($expected.ContainsKey($name) -and -not (Test-SameText $prior $expected[$name])) { throw "PBI changed during synchronization: $name" }
+        if (-not (Test-SameText $prior $files[$name])) { $rows += [pscustomobject]@{ name = $name; before = $prior; text = $files[$name] } }
+    }
+    foreach ($row in $rows) { if ($null -ne $row.before) { Write-Text "$folder/history/$($row.name).$batch" $row.before } }
+    foreach ($name in $expected.Keys) { if (-not (Test-SameText (Read-Text "$folder/$name") $expected[$name])) { throw "PBI changed during synchronization: $name" } }
+    $touched = @()
+    try {
+        foreach ($row in $rows) {
+            if (-not (Test-SameText (Read-Text "$folder/$($row.name)") $row.before)) { throw "PBI changed during synchronization: $($row.name)" }
+            $touched += $row
+            Write-Text "$folder/$($row.name)" $row.text
+            if (-not (Test-SameText (Read-Text "$folder/$($row.name)") $row.text)) { throw "Saved document did not match: $($row.name)" }
+        }
+    } catch {
+        $failure = $_.Exception.Message; $errors = @()
+        [array]::Reverse($touched)
+        foreach ($row in $touched) { try { if ($null -eq $row.before) { Remove-File "$folder/$($row.name)" } else { Write-Text "$folder/$($row.name)" $row.before } } catch { $errors += $row.name } }
+        throw "Synchronization failed: $failure. Restore failures: $($errors -join ', '). History retained."
+    }
+    return ,@($rows | ForEach-Object { $_.name })
+}
+function Invoke-SyncPbi {
+    if (-not $Pbi) { throw 'Use -Pbi <folder name>.' }
+    $folder = $Pbi.Replace('\', '/').TrimEnd('/')
+    if (-not $folder.StartsWith('playbook/pbis/', $Ordinal)) { $folder = 'playbook/pbis/' + $folder }
+    if (-not (Test-SafePath $folder) -or $folder -notmatch '^playbook/pbis/[^/]+$') { throw 'Select one PBI folder under playbook/pbis.' }
+    $raw = Read-Text "$folder/pbi-state.json"
+    if ($null -eq $raw) { throw 'Canonical pbi-state.json is required for synchronization.' }
+    $state = $raw | ConvertFrom-Json
+    if (-not (Test-Obj $state) -or -not (Test-Num (Get-Prop $state 'schemaVersion')) -or (Get-Prop $state 'schemaVersion') -ne 2) { throw 'Repair the canonical state schema before synchronization.' }
+    if (-not (Test-Same $state.pbi $folder.Split('/')[-1]) -or -not (Test-In $Bundle.readiness.statuses $state.status)) { throw 'Repair the canonical state identity or status before synchronization.' }
+    if ($Preview) { Write-Host 'Preview only. SyncPbi repairs derived sections and metadata, preserves history, and reruns readiness. No files written.'; return $true }
+    $changed = @()
+    for ($pass = 0; $pass -lt 2; $pass++) {
+        $docs = New-Map
+        foreach ($section in $Bundle.workingSections) { $docs[$section.file] = Read-Text "$folder/$($section.file)" }
+        $docs['pbi.json'] = Read-Text "$folder/pbi.json"
+        $files = Get-WorkingFiles $state $docs
+        $files['pbi-state.json'] = if ($pass -eq 0) { $raw } else { (ConvertTo-Json -InputObject $state -Depth 100) + "`n" }
+        $docs['pbi-state.json'] = $raw
+        $changed += Save-PbiFiles $folder $files $docs
+        $report = Get-PbiReport
+        if (Test-Same $state.status $report.computedStatus) { break }
+        Set-Prop $state 'status' $report.computedStatus
+    }
+    if (-not (Test-Same $state.status $report.claimedStatus)) { throw 'Readiness did not stabilize after synchronization; inspect the canonical state.' }
+    $outFiles = New-Map; $outFiles['READINESS.json'] = (ConvertTo-Json -InputObject $report -Depth 100) + "`n"
+    $changed += Save-PbiFiles $folder $outFiles (New-Map)
+    $out = [ordered]@{ state = $state; report = $report; changed = @($changed | Select-Object -Unique) }
+    if ($Json) { [Console]::Out.WriteLine((ConvertTo-Json -InputObject $out -Depth 100 -Compress)) }
+    else { Write-Host "Synchronized $($out.changed.Count) documents. Readiness: $($report.computedStatus); finalAllowed=$($report.finalAllowed). Decisions and approvals unchanged." }
+    return $true
+}
+
 # ---- Evidence fingerprints: mirrors refreshEvidence() in core.js ----
 function Invoke-RefreshEvidence {
     $out = [ordered]@{ checked = 0; fingerprinted = @(); stale = @(); skipped = @(); reusable = @(); written = $false }
@@ -1014,7 +1135,7 @@ function Invoke-RefreshEvidence {
     if ($null -ne $raw) {
         try { $index = $raw | ConvertFrom-Json } catch { throw "$($Bundle.knowledgeIndex) is not valid JSON. Fix it before refreshing." }
         if (-not (Test-Obj $index) -or -not (Test-One (Get-Prop $index 'schemaVersion')) -or -not ((Get-Prop $index 'entries') -is [array])) { throw "Unsupported $($Bundle.knowledgeIndex); expected schemaVersion 1 with an entries list." }
-        $changed = $false; $hashes = New-Map
+        $changed = $false; $hashes = New-Map; $identityRead = $false; $commit = $null
         $hashOf = {
             param($p)
             if ($hashes.ContainsKey($p)) { return $hashes[$p] }
@@ -1032,31 +1153,61 @@ function Invoke-RefreshEvidence {
             if (-not (Test-SafePath $p)) { $out.skipped += $id; continue }
             $out.checked = $out.checked + 1
             $h = & $hashOf $p
+            $hadFingerprint = (Get-Prop $e 'sha256') -is [string]
+            $reasons = @()
             $isStale = ((Get-Prop $e 'stale') -is [bool]) -and (Get-Prop $e 'stale')
             if ($null -eq $h) {
-                if (-not $isStale -or -not (Test-Same (Get-Prop $e 'staleReason') 'missing')) { Set-Prop $e 'stale' $true; Set-Prop $e 'staleReason' 'missing'; $changed = $true }
-                $out.stale += $id
+                $reasons += 'missing'
             }
             elseif (-not ((Get-Prop $e 'sha256') -is [string])) { Set-Prop $e 'sha256' $h; $changed = $true; $out.fingerprinted += $id; if ($isStale) { $out.stale += $id } }
-            elseif (-not (Test-Same $e.sha256 $h)) { Set-Prop $e 'stale' $true; Set-Prop $e 'staleReason' 'changed'; Set-Prop $e 'sha256' $h; $changed = $true; $out.stale += $id }
+            elseif (-not (Test-Same $e.sha256 $h)) { $reasons += 'changed'; Set-Prop $e 'sha256' $h; $changed = $true }
             elseif ($isStale) { $out.stale += $id }
             # dependsOn: a changed dependency makes the finding unsafe to reuse (same rules as refreshEvidence in core.js).
             $deps = New-Object System.Collections.Generic.List[string]
             $dl = Get-Prop $e 'dependsOn'
+            if ((Test-Has $e 'dependsOn') -and -not ($dl -is [array])) { $reasons += 'invalid-dependency' }
+            if ($dl -is [array]) { foreach ($d in $dl) { if (-not ($d -is [string]) -or -not (Test-SafePath $d)) { $reasons += 'invalid-dependency' } } }
             if ($dl -is [array]) { foreach ($d in $dl) { if (($d -is [string]) -and (Test-SafePath $d) -and -not $deps.Contains($d)) { $deps.Add($d) } } }
-            if ($null -ne $h -and $deps.Count) {
+            if ($null -ne $h -and ($deps.Count -or (Test-Obj (Get-Prop $e 'dependencyHashes')))) {
                 $had = Get-Prop $e 'dependencyHashes'; if (-not (Test-Obj $had)) { $had = [pscustomobject]@{} }
                 $now = [ordered]@{}; $moved = $false
-                foreach ($d in $deps) { $dh = & $hashOf $d; $now[$d] = $dh; if ((Test-Has $had $d) -and -not (Test-SameText (Get-Prop $had $d) $dh)) { $moved = $true } }
+                if ($hadFingerprint -and -not (Test-Obj (Get-Prop $e 'dependencyHashes')) -and $deps.Count) { $moved = $true }
+                if (Test-Obj (Get-Prop $e 'dependencyHashes')) {
+                    if ((Get-Keys $had).Count -ne $deps.Count) { $moved = $true }
+                    foreach ($d in $deps) { if (-not (Test-Has $had $d)) { $moved = $true } }
+                }
+                foreach ($d in $deps) { $dh = & $hashOf $d; $now[$d] = $dh; if ($null -eq $dh -or ((Test-Has $had $d) -and -not (Test-SameText (Get-Prop $had $d) $dh))) { $moved = $true } }
                 $hadKeys = Get-Keys $had
                 $differs = ($hadKeys.Count -ne $now.Count)
                 if (-not $differs) { foreach ($k in $now.Keys) { if (-not (Test-Has $had $k) -or -not (Test-SameText (Get-Prop $had $k) $now[$k])) { $differs = $true } } }
                 if ($differs) { Set-Prop $e 'dependencyHashes' ([pscustomobject]$now); $changed = $true }
-                if ($moved) {
-                    $nowStale = ((Get-Prop $e 'stale') -is [bool]) -and (Get-Prop $e 'stale')
-                    if (-not $nowStale) { Set-Prop $e 'stale' $true; Set-Prop $e 'staleReason' 'dependency-changed'; $changed = $true }
-                    if ($out.stale -cnotcontains $id) { $out.stale += $id }
+                if ($moved) { $reasons += 'dependency-changed' }
+            }
+            if ((Get-Prop $e 'revision') -is [string]) {
+                if ((Get-Prop $e 'fingerprintedRevision') -is [string] -and -not (Test-Same $e.fingerprintedRevision $e.revision)) { $reasons += 'revision-changed' }
+                if (-not (Test-Same (Get-Prop $e 'fingerprintedRevision') $e.revision)) { Set-Prop $e 'fingerprintedRevision' $e.revision; $changed = $true }
+            }
+            if ((Get-Prop $e 'repositoryCommit') -is [string]) {
+                if (-not $identityRead) {
+                    $identityRead = $true; $head = Read-Text '.git/HEAD'
+                    if ($null -ne $head) {
+                        $head = $head.Trim()
+                        if ($head.StartsWith('ref: ', $Ordinal)) {
+                            $ref = $head.Substring(5).Trim()
+                            if (Test-SafePath ".git/$ref") {
+                                $commit = Read-Text ".git/$ref"
+                                if ($null -ne $commit) { $commit = $commit.Trim() }
+                                if (-not $commit) { foreach ($line in ((Read-Text '.git/packed-refs') -split '\r?\n')) { if ($line -cmatch '^([0-9a-f]{40,64}) (.+)$' -and $Matches[2] -ceq $ref) { $commit = $Matches[1]; break } } }
+                            }
+                        } elseif ($head -cmatch '^[0-9a-f]{40,64}$') { $commit = $head }
+                    }
                 }
+                if (-not (Test-Same $commit $e.repositoryCommit)) { $reasons += 'repository-changed' }
+            }
+            if ($reasons.Count) {
+                $reason = if ($reasons -contains 'invalid-dependency') { 'invalid-dependency' } else { $reasons[-1] }
+                if (-not ((Get-Prop $e 'stale') -eq $true) -or -not (Test-Same (Get-Prop $e 'staleReason') $reason)) { Set-Prop $e 'stale' $true; Set-Prop $e 'staleReason' $reason; $changed = $true }
+                if ($out.stale -cnotcontains $id) { $out.stale += $id }
             }
             $finalStale = ((Get-Prop $e 'stale') -is [bool]) -and (Get-Prop $e 'stale')
             if (-not $finalStale) { $out.reusable += $id }
@@ -1334,6 +1485,7 @@ try {
         'Verify' { Invoke-Verify }
         'Uninstall' { Invoke-Uninstall }
         'CheckPbi' { Invoke-CheckPbi }
+        'SyncPbi' { Invoke-SyncPbi }
         'RefreshEvidence' { Invoke-RefreshEvidence }
         'ApproveAndGenerate' { Invoke-ApproveAndGenerate }
     }

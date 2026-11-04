@@ -98,10 +98,45 @@ const text=s=>String(s).replace(/<[^>]+>/g,' ').replace(/&lt;/g,'<').replace(/&g
   state=JSON.parse(await P.read(root,folder+'/pbi-state.json'));
   assert.deepEqual(state.decisions.map(d=>d.id+':'+d.status),['DEC-1:approved','DEC-2:approved','DEC-3:superseded','DEC-4:approved','DEC-5:approved']);assert.equal(state.decisions.find(d=>d.id==='DEC-5').supersedes,'DEC-3');
   assert.deepEqual(P.questionProgress(state).deferred,[]);assert.equal(P.questionProgress(state).next,null);assert.equal(P.questionProgress(state).answered,3);
+  const continuation=P.workflowNextAction({state,readiness:{computedStatus:'Needs Evidence'},moreAnalysisRequired:true});
+  assert.equal(continuation.action,'AUTO_CONTINUE');assert.equal(continuation.stage,'IMPLEMENTATION_ANALYSIS');
   // The agent moves the draft to Ready for Review; the readiness check agrees and only the one final approval is missing.
   state.status='Ready for Review';await P.write(root,folder+'/pbi-state.json',JSON.stringify(state,null,2));await P.write(root,folder+'/DRAFT-PBI.md',W.draftDoc(state,'Ready for Review'));
   const r=await P.checkPbi(root,folder,true);assert.equal(r.computedStatus,'Ready for Review');assert.deepEqual(P.approvalBlockers(r).map(i=>i.code),[],'the only open item is the user approval itself');
   assert.deepEqual(r.issues.map(i=>i.code),['APPROVAL_PENDING'],'PO/BA and technical approvals are not required by default');assert.equal(r.warnings.length,1);
+ });
+ await step('five technical gaps ask before conditional drafting, then continue automatically without changing decisions',async()=>{
+  state=JSON.parse(await P.read(root,folder+'/pbi-state.json'));
+  const beforeState=await P.read(root,folder+'/pbi-state.json'),beforeDraft=await P.read(root,folder+'/DRAFT-PBI.md'),beforeLog=await P.read(root,folder+'/DECISION-LOG.md');
+  const gaps=[
+   {id:'EXT-CMS',classification:'EXTERNAL_DEPENDENCY',readinessRefs:['EXT-CMS']},
+   {id:'RUN-CRM',classification:'RUNTIME_VERIFICATION',readinessRefs:['RUN-CRM']},
+   {id:'EXT-AUDIT',classification:'EXTERNAL_DEPENDENCY',readinessRefs:['EXT-AUDIT']},
+   {id:'EXT-INSTRUMENT',classification:'EXTERNAL_DEPENDENCY',readinessRefs:['EXT-INSTRUMENT']},
+   {id:'RUN-CONNECTION',classification:'RUNTIME_VERIFICATION',readinessRefs:['RUN-CONNECTION']}];
+  const readiness={computedStatus:'Needs Evidence',issues:gaps.map(g=>({code:'EVIDENCE_GAP',ref:g.id}))};
+  assert.equal(P.questionProgress(state).next,null,'no PO/BA questions remain');
+  const question=P.workflowNextAction({state,readiness,gaps,requirementsComplete:true});
+  assert.equal(question.action,'ASK_DECISION');assert.equal(question.decision.recommended,'A');assert.equal(question.decision.allowCustom,true);
+  assert.match(question.decision.question,/conditional PBI/);assert.deepEqual(question.decision.options.map(x=>x.key),['A','B','C','D']);
+  const choice=P.recordWorkflowChoice(state,{option:'A',by:'Business reviewer',at:'2026-11-04T12:00:00Z'});
+  await P.write(root,folder+'/history/pbi-state.workflow-choice.json',beforeState);
+  await P.write(root,folder+'/pbi-state.json',JSON.stringify(choice.state,null,2)+'\n');
+  state=JSON.parse(await P.read(root,folder+'/pbi-state.json'));
+  const selected=P.workflowNextAction({state,readiness,gaps,requirementsComplete:true});
+  assert.equal(selected.action,'GENERATE_CONDITIONAL_PBI');assert.equal(selected.finalAllowed,undefined);
+  state=P.completeWorkflowChoice(state,choice.choice.id,{conditionalPbiGenerated:true,at:'2026-11-04T12:01:00Z'});
+  await P.write(root,folder+'/history/pbi-state.workflow-selected.json',await P.read(root,folder+'/pbi-state.json'));
+  await P.write(root,folder+'/pbi-state.json',JSON.stringify(state,null,2)+'\n');
+  const resumedState=JSON.parse(await P.read(root,folder+'/pbi-state.json'));
+  const continuePlan=P.workflowNextAction({state:resumedState,readiness,gaps,requirementsComplete:true});
+  assert.equal(continuePlan.action,'AUTO_CONTINUE');assert.equal(continuePlan.stage,'IMPLEMENTATION_PLANNING');
+  const complete=P.workflowNextAction({state:resumedState,readiness,gaps,requirementsComplete:true,implementationPlanComplete:true});
+  assert.equal(complete.action,'ASK_DECISION');assert.ok(complete.decision);assert.equal(complete.conditional,true);assert.equal(complete.finalAllowed,false);
+  assert.equal(await P.read(root,folder+'/DRAFT-PBI.md'),beforeDraft);assert.equal(await P.read(root,folder+'/DECISION-LOG.md'),beforeLog);
+  assert.deepEqual(resumedState.decisions.map(d=>d.id),['DEC-1','DEC-2','DEC-3','DEC-4','DEC-5']);
+  assert.equal(resumedState.analysis.workflowChoices.length,1);assert.equal(resumedState.analysis.workflowChoices[0].option,'A');
+  assert.ok(await P.read(root,folder+'/history/pbi-state.workflow-choice.json'));
  });
  await step('PowerShell chat approval refuses sensitive working-document content without recording approval',async()=>{
   const requestPath=folder+'/REQUEST.md',request=await P.read(root,requestPath);

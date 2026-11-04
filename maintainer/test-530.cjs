@@ -81,12 +81,91 @@ test('agent entry point routes to the relevant guide only, and every routed guid
  assert.match(agent,/## Minimum sufficient evidence[\s\S]*VERIFIED[\s\S]*ASSUMED[\s\S]*UNAVAILABLE[\s\S]*BLOCKING[\s\S]*WARNING[\s\S]*INFORMATIONAL/);
  assert.match(agent,/"Shared UI flow\s+map" section/);assert.match(agent,/"Implementation difference map"/);assert.match(agent,/"Run metrics" section/);
  assert.match(agent,/tools: \["read", "search", "edit", "execute", "vscode\/askQuestions"\]/);
+ const interaction=agent.replace(/\s+/g,' ');
+ assert.ok(interaction.includes('tools actually exposed in this session; the configured IDE profile and frontmatter declaration are not proof that a tool is callable. In VS Code, invoke vscode/askQuestions directly as the primary mechanism for every business decision, external-dependency workflow choice, and folder disambiguation when it is exposed.'));
+ assert.ok(interaction.includes('Use single-choice by default, multi-select only for genuinely independent selections, and keep free-text/custom answers enabled. Do not first print numbered options in chat.'));
+ assert.ok(interaction.includes('Only fall back to concise numbered chat choices if the tool is absent from the runtime or the invocation fails; state which happened'));
+ assert.ok(interaction.includes('continue automatically to the next analysis or readiness step'));
+ assert.ok(interaction.includes('only after the user chooses the recommended conditional path (or a clearly equivalent custom response), update DRAFT-PBI.md with verified behavior'));
+ assert.ok(interaction.includes('Conditional drafts are not final PBI-CDMS/DAB/UI artifacts and do not bypass approval or readiness'));
+ assert.ok(interaction.includes('REQUEST.md and user-entered pbi.json intake fields are preserved. Only workflow-owned pbi.json metadata (wizard stage, sourceAccess and computed status) may be synchronized, after preserving the prior version under history/'));
+ assert.ok(interaction.includes('If DRAFT-PBI.md or OPEN-QUESTIONS.md differs, preserve the prior document before correcting only the recoverable mirror'));
+ const guided=files[P.BASE+'/skills/guided-pbi-creation.md'].replace(/\s+/g,' ');
+ assert.ok(guided.includes('ask once whether to proceed with a CONDITIONAL draft; generate it only after the user chooses'));
+ assert.ok(guided.includes('Record the selected workflow response as workflow progress, not as a business decision'));
+ assert.ok(guided.includes('On resume, read the recorded workflow progress before asking the same choice again'));
+ for(const option of ['A. Recommended — continue with the conditional PBI','B. provide the missing repository or service contract','C. defer the affected implementation','D. Custom Response.'])assert.ok(guided.includes(option),option);
+ assert.ok(guided.includes('Never create final PBI-CDMS/DAB/UI artifacts or claim implementation readiness from this path'));
+ const resolution=agent.replace(/\s+/g,' ');
+ assert.ok(resolution.includes('explicitly supplied path takes precedence.'));
+ assert.ok(resolution.includes("search only direct child folders of this repository's playbook/pbis/; never recursively include Source/playbook/pbis"));
+ assert.ok(resolution.includes('If the current conversation already resolved this PBI to a folder, reuse that folder after verifying its pbi-state.json identity; do not ask for it again.'));
+ assert.ok(resolution.includes('inspect only pbi.json and pbi-state.json to compare identity, status and recorded decisions'));
+ assert.ok(resolution.includes('invoke vscode/askQuestions with one clickable choice per folder plus a free-text Custom choice'));
+ assert.ok(resolution.includes('Use numbered chat choices only if the native tool is absent or fails.'));
+ assert.match(files[P.BASE+'/skills/guided-pbi-creation.md'].replace(/\s+/g,' '),/After recording an answer, continue the current workflow automatically[\s\S]*do not stop at an acknowledgement[\s\S]*copy and paste/);
+ assert.match(files['.github/skills/business-decision-advisor/SKILL.md'].replace(/\s+/g,' '),/Then return to the active PBI stage and continue automatically[\s\S]*do not require a separate/);
  assert.match(files[P.BASE+'/skills/readiness-and-approval.md'],/Install-PBIBuilder\.ps1 -RepoPath <repository-root> -Action ApproveAndGenerate\s+-Pbi <folder> -Approver <name>[\s\S]*-ReviewedContent <fingerprint>/);
  assert.match(files[P.BASE+'/README.md'],/review the concise summary in chat[\s\S]*"Approve & Generate"[\s\S]*HTML form remains\s+optional/);
  const vs=P.setupFiles({projectName:'Router',ide:'visualstudio',role:'dab',sources:{legacy:'../Legacy',cdms:'../CDMS',ui:'../UI'}},assets,'<html></html>').files[P.AGENT];
+ const vsRouter=vs.slice(vs.indexOf('## Workflow router'),vs.indexOf('## Source access before analysis'));
+ assert.ok(vsRouter.length>0&&vsRouter.length<3500,'the Visual Studio router stays compact ('+vsRouter.length+' characters)');
  assert.doesNotMatch(vs,/tools:.*execute/,'do not publish an unsupported command tool for Visual Studio');
+ const vsInteraction=vs.replace(/\s+/g,' ');
+ assert.ok(vsInteraction.includes('configured IDE profile and frontmatter declaration are not proof that a tool is callable. In VS Code, invoke vscode/askQuestions directly as the primary mechanism for every business decision, external-dependency workflow choice'));
+ assert.ok(vsInteraction.includes('Only fall back to concise numbered chat choices if the tool is absent from the runtime or the invocation fails'));
  assert.match(files[P.BASE+'/skills/readiness-and-approval.md'],/"impact" is BLOCKING[\s\S]*Evidence "verification" is VERIFIED/);
  assert.match(files[P.BASE+'/skills/repository-knowledge.md'],/"dependsOn"[\s\S]*"dependency-changed"[\s\S]*"reusable"/);
+});
+
+test('workflow next action continues recoverable work, asks genuine decisions, and preserves conditional/readiness gates',()=>{
+ const automatic=P.workflowNextAction({gaps:[{id:'MAP-1',classification:'AUTO_RESOLVABLE'}],autoSteps:0});
+ assert.equal(automatic.action,'AUTO_CONTINUE');assert.equal(automatic.stage,'EVIDENCE_RESOLUTION');
+ const decision=P.workflowNextAction({state:{questions:[{id:'Q-1',owner:'po-ba',blocking:true,status:'unanswered',question:'Choose a policy'}]}});
+ assert.equal(decision.action,'ASK_DECISION');assert.deepEqual(decision.decisions.map(q=>q.id),['Q-1']);
+ const technical=P.workflowNextAction({state:{questions:[{id:'Q-T',owner:'technical',blocking:true,status:'unanswered',question:'Confirm the security contract'}]}});
+ assert.equal(technical.action,'ASK_DECISION');assert.deepEqual(technical.decisions.map(q=>q.id),['Q-T']);
+ const technicalGaps=[
+  {id:'EXT-CMS',classification:'EXTERNAL_DEPENDENCY',readinessRefs:['EXT-CMS']},
+  {id:'RUN-CRM',classification:'RUNTIME_VERIFICATION',readinessRefs:['RUN-CRM']},
+  {id:'EXT-AUDIT',classification:'EXTERNAL_DEPENDENCY',readinessRefs:['EXT-AUDIT']},
+  {id:'EXT-INSTRUMENT',classification:'EXTERNAL_DEPENDENCY',readinessRefs:['EXT-INSTRUMENT']},
+  {id:'RUN-CONNECTION',classification:'RUNTIME_VERIFICATION',readinessRefs:['RUN-CONNECTION']}];
+ const technicalReadiness={computedStatus:'Needs Evidence',issues:technicalGaps.map(g=>({code:'EVIDENCE_GAP',ref:g.id}))};
+ const initialState={pbi:'305974',questions:[],decisions:[{id:'DEC-1',status:'approved'},{id:'DEC-2',status:'approved'},{id:'DEC-3',status:'approved'},{id:'DEC-4',status:'approved'},{id:'DEC-5',status:'approved'}]};
+ const conditionalQuestion=P.workflowNextAction({state:initialState,readiness:technicalReadiness,gaps:technicalGaps,requirementsComplete:true});
+ assert.equal(conditionalQuestion.action,'ASK_DECISION');assert.equal(conditionalQuestion.decision.recommended,'A');assert.equal(conditionalQuestion.decision.allowCustom,true);
+ assert.deepEqual(conditionalQuestion.decision.options.map(x=>x.key),['A','B','C','D']);assert.equal(conditionalQuestion.decision.options[0].recommended,true);
+ const savedChoice=P.recordWorkflowChoice(initialState,{option:'A',by:'user',at:'2026-11-04T12:00:00Z'});
+ const resumedState=JSON.parse(JSON.stringify(savedChoice.state));assert.equal(resumedState.decisions.length,5);assert.equal(resumedState.decisions[4].id,'DEC-5');
+ assert.equal(resumedState.analysis.workflowChoices[0].status,'selected');assert.equal(resumedState.analysis.workflowChoices[0].option,'A');
+ const custom=P.recordWorkflowChoice(initialState,{option:'D',custom:'Coordinate service verification with the owning team.',by:'user',at:'2026-11-04T12:01:00Z'});
+ assert.equal(custom.choice.response,'Coordinate service verification with the owning team.');assert.equal(custom.state.decisions.length,5);
+ const conditional=P.workflowNextAction({state:resumedState,readiness:technicalReadiness,gaps:technicalGaps,requirementsComplete:true});
+ assert.equal(conditional.action,'GENERATE_CONDITIONAL_PBI');assert.equal(conditional.gaps.length,5);
+ const appliedChoice=P.completeWorkflowChoice(resumedState,resumedState.analysis.workflowChoices[0].id,{conditionalPbiGenerated:true,at:'2026-11-04T12:02:00Z'});
+ const continuePlan=P.workflowNextAction({state:appliedChoice,readiness:technicalReadiness,gaps:technicalGaps,requirementsComplete:true});
+ assert.equal(continuePlan.action,'AUTO_CONTINUE');assert.equal(continuePlan.stage,'IMPLEMENTATION_PLANNING');
+ const conditionalComplete=P.workflowNextAction({state:appliedChoice,readiness:technicalReadiness,gaps:technicalGaps,requirementsComplete:true,implementationPlanComplete:true});
+ assert.equal(conditionalComplete.action,'ASK_DECISION');assert.ok(conditionalComplete.decision);assert.equal(conditionalComplete.conditional,true);assert.equal(conditionalComplete.finalAllowed,false);
+ const unlinkedIssue=P.workflowNextAction({readiness:{computedStatus:'Draft',issues:[{code:'DOC_CONTENT_MISMATCH',ref:'BR-2'}]},gaps:[{id:'DEP-1',classification:'EXTERNAL_DEPENDENCY'}],requirementsComplete:true});
+ assert.equal(unlinkedIssue.action,'BLOCKED_EXTERNAL');assert.deepEqual(unlinkedIssue.issues.map(i=>i.ref),['BR-2']);
+ const incomplete=P.workflowNextAction({readiness:{computedStatus:'Needs Evidence'},gaps:[{id:'DEP-1',classification:'EXTERNAL_DEPENDENCY'}],requirementsComplete:false});
+ assert.equal(incomplete.action,'ASK_DECISION');assert.equal(incomplete.stage,'REQUIREMENT_CLARIFICATION');assert.match(incomplete.decision.options[0].text,/Clarify the missing business requirements/);
+ const unclassified=P.workflowNextAction({gaps:[{id:'G-1',description:'unknown source gap'}],requirementsComplete:true});
+ assert.equal(unclassified.action,'BLOCKED_EXTERNAL');assert.match(unclassified.reason,/not classified/);
+ const loop=P.workflowNextAction({recoverableWork:['same document mismatch'],autoSteps:8});
+ assert.equal(loop.action,'BLOCKED_EXTERNAL');assert.match(loop.reason,/step limit/);
+ const review=P.workflowNextAction({readiness:{computedStatus:'Ready for Review'}});
+ assert.equal(review.action,'COMPLETE');assert.match(review.next,/explicit user choice/);
+ const ready=P.workflowNextAction({readiness:{computedStatus:'Development-Ready'}});
+ assert.equal(ready.action,'AUTO_CONTINUE');assert.equal(ready.stage,'PBI_GENERATION');
+ const readyWithArtifacts=P.workflowNextAction({readiness:{computedStatus:'Development-Ready'},artifactsAvailable:true});
+ assert.equal(readyWithArtifacts.action,'COMPLETE');
+ const noReadiness=P.workflowNextAction({requirementsComplete:true});
+ assert.equal(noReadiness.action,'AUTO_CONTINUE');assert.equal(noReadiness.stage,'READINESS_VALIDATION');
+ const draftWithoutIssues=P.workflowNextAction({readiness:{computedStatus:'Draft',issues:[]},requirementsComplete:true});
+ assert.equal(draftWithoutIssues.action,'BLOCKED_EXTERNAL');assert.equal(draftWithoutIssues.stage,'READINESS_VALIDATION');
 });
 
 test('analysis plan scans the shared UI once and only the backend differences per backend',()=>{

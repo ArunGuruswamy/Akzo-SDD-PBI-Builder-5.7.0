@@ -41,6 +41,7 @@ node --check src/core.js && node --check src/ui.js
 node test-core.cjs           # 59 workflow checks on real temp files
 node test-ui.cjs             # built HTML scripts and handlers, simulated DOM (not a rendered browser)
 node --test test-521.cjs test-530.cjs   # approval, evidence policy, analysis plan, incremental discovery, metrics
+node --test test-targeted.cjs         # persistent continuation, conditional drafts, mirror/freshness parity, host profiles
 node test-e2e.cjs            # install -> discover -> decisions -> resume -> approve -> generate, real files and installer
 node benchmark-530.cjs       # 5.2.2 versus current counts and times (docs/PERFORMANCE-5.3.0.md)
 node test-ps.cjs             # Windows PowerShell: byte equivalence with core.js, installer actions
@@ -98,6 +99,31 @@ strings collapsed; `canon()` / `ConvertTo-Canon`). Scopes are in `READINESS.scop
 PowerShell pitfalls met here: variable names are case-insensitive (`$l` overwrites
 `$L`) and scoping is dynamic (a local `$sha` hides the script's `$Sha` from callees).
 They check completeness and consistency only.
+
+`synchronizePbi()` and installer `-Action SyncPbi -Pbi <folder>` repair the
+workflow-owned rule, acceptance, dependency, evidence, decision and question
+sections from canonical state, preserving other narrative and all original intake
+fields. Changed files are backed up to `history/`; concurrent changes stop writes
+and failed writes roll back. The canonical checker runs after synchronization,
+and computed status and `READINESS.json` are saved without approving anything.
+Read-only `CheckPbi` remains read-only. The browser readiness action synchronizes
+and computes the next action automatically.
+
+`advanceWorkflow()` reads saved state first, refreshes cached evidence, synchronizes,
+and resumes the next action from `analysis.workflow`. Repeated unchanged automatic
+actions become interactive choices; automatic budgets are limited to eight steps
+and transition history to 32 entries. Operational progress is excluded from the
+review snapshot in both checkers; requirements, evidence and documents are not.
+`generateConditionalPbi()` requires sufficient requirements and an explicit saved
+workflow selection. It writes only a conditional draft and implementation/
+verification plan, reruns readiness, and offers the next dependency-owner action.
+It never creates final artifacts, approves decisions, or clears security blockers.
+
+Host profiles are rendered separately from the same generator. VS Code retains
+native `vscode/askQuestions` and Custom Response. Visual Studio uses chat choices
+with Custom Response unless a question tool is actually exposed at runtime; a tool
+declaration is not evidence that the tool is callable. Live IDE invocation checks
+must be reported as NOT VERIFIED when unavailable.
 
 New final-approval snapshots also hash the working documents, attachments, state
 and distinct repository-relative evidence sources. Each check revalidates the

@@ -138,14 +138,17 @@ const loose=async d=>JSON.parse(await fs.readFile(d,'utf8'));
   const seed=async d=>{await fs.mkdir(path.join(d,'src'),{recursive:true});for(const [n,t] of [['a.cs','class A {}'],['contract.cs','interface C {}'],['spaced dep.cs','x'],['b.cs','class B {}'],['c.cs','class C {}']])await fs.writeFile(path.join(d,'src',n),t);const root=new DirectoryHandle(d);await P.write(root,P.KNOWLEDGE,JSON.stringify(index,null,2));return root;};
   const a=await repo(),b=await repo(),ra=await seed(a);await seed(b);
   const run=async()=>{const js=await P.refreshEvidence(ra),r=ps(pkg,['-RepoPath',b,'-Action','RefreshEvidence','-Json']);assert.ok(r.code===0||r.code===3,r.err);assert.deepEqual(JSON.parse(r.out),js);assert.deepEqual(await loose(path.join(b,P.KNOWLEDGE)),await loose(path.join(a,P.KNOWLEDGE)));return js;};
-  let js=await run();assert.deepEqual(js.reusable,['K-A','K-B','K-C']);assert.deepEqual(js.stale,[]);
+  let js=await run();assert.deepEqual(js.reusable,['K-C']);assert.deepEqual(js.stale,['K-A','K-B']);
+  assert.equal(JSON.parse(await fs.readFile(path.join(a,P.KNOWLEDGE),'utf8')).entries[0].staleReason,'invalid-dependency');
   js=await run();assert.equal(js.written,false);
+  // The agent removes invalid dependencies only after reviewing the finding; missing files still block reuse.
+  for(const d of [a,b]){const f=path.join(d,P.KNOWLEDGE),ix=JSON.parse(await fs.readFile(f,'utf8'));ix.entries[0].dependsOn=['src/contract.cs','src/spaced dep.cs'];delete ix.entries[0].stale;delete ix.entries[0].staleReason;await fs.writeFile(f,JSON.stringify(ix,null,2));}
   for(const d of [a,b])await fs.writeFile(path.join(d,'src/contract.cs'),'interface C { int Added(); }');
-  js=await run();assert.deepEqual(js.stale,['K-A']);assert.deepEqual(js.reusable,['K-B','K-C']);
+  js=await run();assert.deepEqual(js.stale,['K-A','K-B']);assert.deepEqual(js.reusable,['K-C']);
   const saved=JSON.parse(await fs.readFile(path.join(a,P.KNOWLEDGE),'utf8')).entries[0];assert.equal(saved.staleReason,'dependency-changed');assert.deepEqual(Object.keys(saved.dependencyHashes),['src/contract.cs','src/spaced dep.cs']);
   // A dependency that disappears also invalidates the finding (the agent first re-verified it and cleared the flag).
   for(const d of [a,b]){const f=path.join(d,P.KNOWLEDGE),ix=JSON.parse(await fs.readFile(f,'utf8'));delete ix.entries[0].stale;delete ix.entries[0].staleReason;await fs.writeFile(f,JSON.stringify(ix,null,2));await fs.rm(path.join(d,'src/spaced dep.cs'));}
-  js=await run();assert.deepEqual(js.stale,['K-A']);
+  js=await run();assert.deepEqual(js.stale,['K-A','K-B']);
   assert.equal(JSON.parse(await fs.readFile(path.join(a,P.KNOWLEDGE),'utf8')).entries[0].staleReason,'dependency-changed');
  });
  await test('unsupported bundle schema, unknown tokens and unresolved placeholders fail clearly without writing',async()=>{
