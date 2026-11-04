@@ -34,9 +34,12 @@ action('pick',async()=>{
  $('recentRepos').value=String(i);await openRoot(selected);
 });
 $('recentRepos').onchange=()=>{const h=sessionRepos[+$('recentRepos').value];if(h&&!busy)openRoot(h).catch(e=>msg(e.message,true));};
-async function openRoot(selected){if(!root||!(await root.isSameEntry(selected)))resetRepositoryState();root=selected;config=null;pbiItems=[];$('rootConfirmed').checked=false;$('displayPath').value='';$('allowUpdates').checked=false;$('review').replaceChildren();$('promptOutput').classList.add('hidden');$('comparisonOutput').classList.add('hidden');$('existingPbi').replaceChildren(new Option('Find PBIs in this project',''));$('pbiDetails').textContent='';$('manualPbi').value='';
- const current=await PBI.read(root,PBI.CONFIG);
- if(current){config=PBI.normalizeConfig(JSON.parse(current));fill(config);}else fill({projectName:root.name,ide:'visualstudio',role:'legacy',includeReferences:false,sources:{legacy:'',dab:'',cdms:'',ui:''}});
+async function openRoot(selected){
+ const selectedWorkspace=await PBI.resolveWorkspace(selected);
+ if(selectedWorkspace.configPath==='Source/'+PBI.CONFIG)selected=await selected.getDirectoryHandle('Source');
+ if(!root||!(await root.isSameEntry(selected)))resetRepositoryState();root=selected;config=null;pbiItems=[];$('rootConfirmed').checked=false;$('displayPath').value='';$('allowUpdates').checked=false;$('review').replaceChildren();$('promptOutput').classList.add('hidden');$('comparisonOutput').classList.add('hidden');$('existingPbi').replaceChildren(new Option('Find PBIs in this project',''));$('pbiDetails').textContent='';$('manualPbi').value='';
+ const workspace=await PBI.resolveWorkspace(root),current=workspace.config;
+ if(current){config=current;fill(config);}else fill({projectName:root.name,ide:'visualstudio',role:'legacy',includeReferences:false,sources:{legacy:'',dab:'',cdms:'',ui:''}});
  let installed='';try{installed=JSON.parse(await PBI.read(root,PBI.MANIFEST)||'{}').packageVersion||'';}catch{installed='unreadable';}
  $('versionBadge').textContent='PBI Builder · '+PBI.VERSION+(installed&&installed!==PBI.VERSION?' · installed '+installed:'');
  $('connectedName').textContent=root.name;$('connectedDetail').textContent=(installed?'Installed: '+installed+(installed===PBI.VERSION?' (up to date). ':'; this file installs '+PBI.VERSION+'. '):'')+(current?'Existing setup loaded. Review setup to upgrade, or use New PBI or Continue PBI.':'Folder selected. Review project settings and install the PBI Builder.');
@@ -183,7 +186,8 @@ async function saveDecisionReview(draft){if(!decisionSession)throw Error('Reload
  await PBI.recordAnswers(root,session.folder,answers,{draft,expectedState:session.expectedState});
  reviewing=null;$('approveBox').classList.add('hidden');$('reviewCards').replaceChildren();
  closeDecisionDialog();await loadQuestions();if(draft)closeDecisionDialog();
- msg(draft?'Decision draft saved. No answers were approved.':'Selected answers saved in the decision log. Unanswered questions remain open.');await syncJourney();}
+ const continued=draft?null:await PBI.advanceWorkflow(root,session.folder);
+ msg(draft?'Decision draft saved. No answers were approved.':'Selected answers saved in the decision log. Unanswered questions remain open.\nNext: '+continued.next.action+' - '+continued.next.next);await syncJourney();}
 for(const [label,draft] of [['Save Answers',false],['Save Draft / Decide Later',true],['Cancel',null]]){const button=document.createElement('button');button.textContent=label;button.className=draft===false?'':'secondary';button.onclick=()=>draft===null?closeDecisionDialog():runAction(()=>saveDecisionReview(draft));decisionActions.append(button);}
 decisionHost.append(decisionActions);
 function questionCard(q,state,invalidEvidence){
@@ -214,7 +218,8 @@ function questionCard(q,state,invalidEvidence){
  const buttons=document.createElement('div');buttons.className='buttons';const save=document.createElement('button');save.textContent=q.answer?'Revise answer':'Save answer';
  save.onclick=()=>runAction(async()=>{if(!$('answeredBy').value.trim())throw Error('Enter your name; it is recorded with the decision.');
   const result=await PBI.recordAnswer(root,selectedPbi(),q.id,{option:select.value,custom:custom.value,by:$('answeredBy').value});lastAnswered=q.id;
-  const note=result.decision.supersedes?' (earlier decision kept as superseded)':'';await loadQuestions();msg('Saved '+result.decision.id+' for '+q.id+note+'.');});
+  const continued=await PBI.advanceWorkflow(root,selectedPbi());
+  const note=result.decision.supersedes?' (earlier decision kept as superseded)':'';await loadQuestions();msg('Saved '+result.decision.id+' for '+q.id+note+'.\nNext: '+continued.next.action+' - '+continued.next.next);});
  buttons.append(save);
  if(q.status!=='deferred'){const defer=document.createElement('button');defer.className='secondary';defer.textContent='Decide later';defer.onclick=()=>runAction(async()=>{await PBI.recordSkip(root,selectedPbi(),q.id);await loadQuestions();msg(q.id+' deferred. It remains unresolved and will not be treated as approval.');});buttons.append(defer);}
  buttons.style.display='none';

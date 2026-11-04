@@ -446,7 +446,7 @@ function Get-Readiness($state, $docs, [string]$pbi) {
         $seen = New-Object System.Collections.Generic.List[string]
         foreach ($n in $Spec.lists) { foreach ($x in $Lists[$n]) { $id = Get-Prop $x 'id'; if (-not (Test-Str $id)) { continue }; if ($seen.Contains($id)) { & $add 'DUPLICATE_ID' 0 $id } else { $seen.Add($id) } } }
         # Files from another PBI's folder are never evidence for this one.
-        $isForeign = { param($x) $src = Get-Prop $x 'source'; return ($src -is [string]) -and $src.StartsWith('playbook/pbis/', [System.StringComparison]::Ordinal) -and -not $src.StartsWith("playbook/pbis/$pbi/", [System.StringComparison]::Ordinal) }
+        $isForeign = { param($x) $src = Get-Prop $x 'source'; return ($src -is [string]) -and ($src -cmatch '^(Source/)?playbook/pbis/([^/]+)/') -and -not (Test-Same $Matches[2] $pbi) }
         foreach ($x in $evidence) { if ((Test-Obj $x) -and (& $isForeign $x)) { $id = Get-Prop $x 'id'; & $add 'FOREIGN_PBI_EVIDENCE' 1 $(if (Test-Str $id) { $id } else { $pbi }) } }
         $isHist = { param($x) if ((Get-Prop $x 'historical') -eq $true -and (Get-Prop $x 'historical') -is [bool]) { return $true }; if (& $isForeign $x) { return $true }; $src = Get-Prop $x 'source'; if (-not (Test-Same (Get-Prop $x 'kind') 'repo-file') -or -not ($src -is [string])) { return $false }; foreach ($p in $Spec.historicalPaths) { if ($p.EndsWith('/')) { if ($src.StartsWith($p, [System.StringComparison]::Ordinal)) { return $true } } elseif (Test-Same $src $p) { return $true } }; return $false }
         $evScope = Get-Prop $state 'evidenceScope'; $excluded = @((Get-Arr (Get-Prop $evScope 'exclude')) | Where-Object { $_ -is [string] })
@@ -890,7 +890,7 @@ function Invoke-ApproveAndGenerate {
             $_.code -ceq 'STATUS_OVERCLAIMED')
     })
     if ($blocking.Count) { throw ('Not ready for approval (' + $report.computedStatus + '): ' + (($blocking | ForEach-Object { '[' + $_.code + '] ' + $_.ref + ': ' + $_.message }) -join '; ')) }
-    $folder = $Pbi.Replace('\', '/').TrimEnd('/'); if (-not $folder.StartsWith('playbook/pbis/', $Ordinal)) { $folder = 'playbook/pbis/' + $folder }
+    $folder = Resolve-PbiFolder $Pbi
     $raw = Read-Text "$folder/pbi-state.json"; $state = $raw | ConvertFrom-Json
     $requestRaw = Read-Text "$folder/pbi.json"; if ($null -eq $requestRaw) { $request = [pscustomobject]@{} } else { $request = $requestRaw | ConvertFrom-Json }
     $secretPatterns = @(
@@ -975,11 +975,20 @@ function Invoke-ApproveAndGenerate {
         throw "Generation failed; earlier files were restored. $failure"
     }
 }
+function Resolve-PbiFolder([string]$value) {
+    if (-not $value) { throw 'Use -Pbi <folder name or root-qualified folder>.' }
+    $folder = $value.Replace('\', '/').TrimEnd('/')
+    if ($folder -notmatch '^(Source/)?playbook/pbis/') {
+        if ($folder.Contains('/')) { throw 'Select one direct child of playbook/pbis or Source/playbook/pbis.' }
+        $candidates = @(@("playbook/pbis/$folder", "Source/playbook/pbis/$folder") | Where-Object { [System.IO.Directory]::Exists((Get-Full $_)) })
+        if ($candidates.Count -gt 1) { throw 'Multiple PBI roots match; pass the explicit root-qualified folder.' }
+        $folder = if ($candidates.Count -eq 1) { $candidates[0] } else { "playbook/pbis/$folder" }
+    }
+    if (-not (Test-SafePath $folder) -or $folder -notmatch '^(Source/)?playbook/pbis/[^/]+$') { throw 'Select one PBI folder under playbook/pbis or Source/playbook/pbis.' }
+    return $folder
+}
 function Get-PbiReport {
-    if (-not $Pbi) { throw 'Use -Pbi <folder name> (the folder under playbook/pbis).' }
-    $folder = $Pbi.Replace('\', '/').TrimEnd('/')
-    if (-not $folder.StartsWith('playbook/pbis/', $Ordinal)) { $folder = 'playbook/pbis/' + $folder }
-    if (-not (Test-SafePath $folder) -or $folder -notmatch '^playbook/pbis/[^/]+$') { throw 'Select one PBI folder under playbook/pbis.' }
+    $folder = Resolve-PbiFolder $Pbi
     $raw = Read-Text "$folder/pbi-state.json"; $state = $null
     if ($null -ne $raw) { try { $state = $raw | ConvertFrom-Json } catch { $state = $null } }
     $files = New-Map
@@ -1039,7 +1048,8 @@ function Get-WorkingFiles($state, $docs) {
             continue
         }
         $lines = @()
-        foreach ($record in (Get-Arr (Get-Prop $state $section.list))) {
+        $source = if ((Get-Prop $section 'analysis') -eq $true) { Get-Prop $state 'analysis' } else { $state }
+        foreach ($record in (Get-Arr (Get-Prop $source $section.list))) {
             $fields = @()
             foreach ($key in $section.fields) {
                 if (-not (Test-Has $record $key)) { continue }
@@ -1096,10 +1106,7 @@ function Save-PbiFiles([string]$folder, $files, $expected) {
     return ,@($rows | ForEach-Object { $_.name })
 }
 function Invoke-SyncPbi {
-    if (-not $Pbi) { throw 'Use -Pbi <folder name>.' }
-    $folder = $Pbi.Replace('\', '/').TrimEnd('/')
-    if (-not $folder.StartsWith('playbook/pbis/', $Ordinal)) { $folder = 'playbook/pbis/' + $folder }
-    if (-not (Test-SafePath $folder) -or $folder -notmatch '^playbook/pbis/[^/]+$') { throw 'Select one PBI folder under playbook/pbis.' }
+    $folder = Resolve-PbiFolder $Pbi
     $raw = Read-Text "$folder/pbi-state.json"
     if ($null -eq $raw) { throw 'Canonical pbi-state.json is required for synchronization.' }
     $state = $raw | ConvertFrom-Json
@@ -1120,8 +1127,17 @@ function Invoke-SyncPbi {
         Set-Prop $state 'status' $report.computedStatus
     }
     if (-not (Test-Same $state.status $report.claimedStatus)) { throw 'Readiness did not stabilize after synchronization; inspect the canonical state.' }
-    $outFiles = New-Map; $outFiles['READINESS.json'] = (ConvertTo-Json -InputObject $report -Depth 100) + "`n"
-    $changed += Save-PbiFiles $folder $outFiles (New-Map)
+    $priorReport = Read-Text "$folder/READINESS.json"; $sameReport = $false
+    if ($null -ne $priorReport) {
+        try { $parsedReport = $priorReport | ConvertFrom-Json; $sameReport = Test-Same (ConvertTo-Canon $parsedReport) (ConvertTo-Canon $report) }
+        catch [System.ArgumentException] {
+            $warning = 'Repairing invalid derived READINESS.json; the prior file will be retained in history.'
+            if ($Json) { [Console]::Error.WriteLine($warning) } else { Write-Warning $warning }
+        }
+    }
+    $outFiles = New-Map; $outFiles['READINESS.json'] = if ($sameReport) { $priorReport } else { (ConvertTo-Json -InputObject $report -Depth 100) + "`n" }
+    $expectedReport = New-Map; $expectedReport['READINESS.json'] = $priorReport
+    $changed += Save-PbiFiles $folder $outFiles $expectedReport
     $out = [ordered]@{ state = $state; report = $report; changed = @($changed | Select-Object -Unique) }
     if ($Json) { [Console]::Out.WriteLine((ConvertTo-Json -InputObject $out -Depth 100 -Compress)) }
     else { Write-Host "Synchronized $($out.changed.Count) documents. Readiness: $($report.computedStatus); finalAllowed=$($report.finalAllowed). Decisions and approvals unchanged." }

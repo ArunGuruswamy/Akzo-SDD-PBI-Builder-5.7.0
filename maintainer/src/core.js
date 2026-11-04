@@ -19,6 +19,7 @@ function safePath(path){
  if(typeof path!=='string'||!path||path.includes('\\')||path.startsWith('/')||path.split('/').some(s=>!s||s==='.'||s==='..'||/[\x00-\x1f<>:"|?*]/.test(s)||/[. ]$/.test(s)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(s)))throw Error('Invalid relative file path: '+path);
  return path.split('/');
 }
+function checkPbiFolder(folder){safePath(folder);if(!/^(?:Source\/)?playbook\/pbis\/([^/]+)(?:\/\1)?$/.test(folder))throw Error('Select one PBI folder under playbook/pbis or Source/playbook/pbis.');}
 function line(s,max=200){s=String(s??'').trim();if(!s||/[\r\n\x00-\x1f]/.test(s)||s.length>max)throw Error('Enter a single-line name (1–'+max+' characters).');return s;}
 function normalizeConfig(c){
  if(c.schemaVersion!==undefined&&c.schemaVersion!==1)throw Error('Unsupported config schemaVersion '+c.schemaVersion+'; this package reads version 1.');
@@ -218,8 +219,8 @@ Keep the workflow in this conversation. At each milestone, show one concise
 progress line: "Stage: <current stage> | Next: <next action>". Check the tools
 actually exposed in this session; the configured IDE profile and frontmatter
 declaration are not proof that a tool is callable. In VS Code, invoke
-vscode/askQuestions directly as the primary mechanism for every business
-decision, external-dependency workflow choice, and folder disambiguation when it is exposed. Use single-choice by
+vscode/askQuestions directly as the primary mechanism for every genuine business
+decision and folder disambiguation when it is exposed. Use single-choice by
 default, multi-select only for genuinely independent selections, and keep
 free-text/custom answers enabled. Do not first print numbered options in chat.
 Only fall back to concise numbered chat choices if the tool is absent from the
@@ -238,19 +239,21 @@ continue with the work that does not depend on it. Never claim an unrun check.
 After every completed stage, choose exactly one next action in this order:
 1. AUTO_CONTINUE: finish configured-source discovery, targeted searches, evidence
   checks, safe document synchronization or readiness checks that need no user input.
-2. ASK_DECISION: ask genuine unresolved business/architecture questions, or when only
-  external/runtime gaps remain, ask whether to proceed with a conditional PBI. Recommend
-  the conditional PBI as option A when requirements are defined; include Custom Response.
-  Never classify that workflow choice as an approved business decision.
-3. GENERATE_CONDITIONAL_PBI: only after the user chooses the recommended conditional path
-  (or a clearly equivalent custom response), update DRAFT-PBI.md with verified behavior,
-  acceptance criteria, implementation tasks, named dependencies, owners where known, and
-  verification criteria. Label it CONDITIONAL; keep unresolved gaps and readiness.
+2. ASK_DECISION: ask only genuine unresolved business/architecture questions, with
+  an evidence-backed recommendation and Custom Response. Never ask permission to
+  continue routine refinement or to document technical dependencies.
+3. GENERATE_CONDITIONAL_PBI: automatically when requirements are defined and only
+  technical evidence, registration, runtime, implementation or external dependencies
+  remain. Include verified behavior, acceptance criteria, target implementation
+  guidance, tests, owners where known, and explicit verification tasks. Label it
+  CONDITIONAL; preserve every unresolved gap and readiness result.
 4. BLOCKED_EXTERNAL: a dependency prevents even a safe conditional draft, or a required
   owner/source is genuinely unavailable. Explain the exact blocker and offer the
   available next choices immediately.
-5. COMPLETE: artifacts and the deterministic readiness result are available. Present
-  the review; never imply final approval or implementation readiness without the check.
+5. REFINEMENT_COMPLETE: conditional or refined working artifacts, synchronized
+  canonical state and the deterministic readiness result are available. Present
+  completion without waiting for dependency owners; never imply final approval or
+  implementation readiness without the check.
 Before ending on evidence, status or readiness, apply this order and state the next
 action. Do not loop: if the same stage and blocker repeat without new evidence, stop
 that work and offer choices instead of rescanning.
@@ -259,9 +262,9 @@ transition history in analysis.workflow after each milestone. Resume that record
 not the last chat message. Reset the budget only when relevant inputs change;
 after eight automatic steps or a repeated unchanged action, ask an actionable
 question with an evidence-backed recommendation, alternatives and Custom Response.
-BLOCKED_EXTERNAL is not permission to end silently: present those choices immediately.
-When a conditional draft already exists, do not repeat its applied workflow choice;
-offer the next outstanding owner/verification action instead. Reuse this session's
+BLOCKED_EXTERNAL is not permission to end silently: present the precise business
+decision or structural blocker immediately. An implementation dependency is not a
+developer prompt: record it and finish the conditional refinement. Reuse this session's
 unchanged guides rather than loading them again after every answer.
 
 Working-document synchronization: pbi-state.json is authoritative for structured rules,
@@ -359,15 +362,18 @@ When the user says "Continue PBI" or "Refine PBI", resolve the folder from the
 number, title or provided path. An explicitly supplied path takes precedence.
 If the current conversation already resolved this PBI to a folder, reuse that
 folder after verifying its pbi-state.json identity; do not ask for it again.
-When resolving by number or title, search only direct child folders of this
-repository's playbook/pbis/; never recursively include Source/playbook/pbis or
-PBI-like folders inside configured source repositories. For matching canonical
+Resolve the repository and playbook roots once per session: use the installed
+config and source map, then probe only playbook/pbis and Source/playbook/pbis
+under that repository. Cache found roots and failed paths; do not retry an
+unchanged missing path or invent a replacement. Search only their direct child
+folders, never histories, backups or PBI-like folders inside source repositories.
+Keep the selected root-qualified folder for every later read and write. For matching canonical
 candidates, inspect only pbi.json and pbi-state.json to compare identity, status
 and recorded decisions; do not read candidate histories or working documents
 before resolving the folder. If exactly one valid state matches the requested
 PBI, resume it automatically. If multiple plausible states remain, invoke
 vscode/askQuestions with one clickable choice per folder plus a free-text Custom
-choice; verify a custom answer is an existing direct child of playbook/pbis/ and
+choice; verify a custom answer is an existing direct child of a resolved PBI root and
 that its state identity matches before reading it. Use numbered chat choices
 only if the native tool is absent or fails. Read
 pbi-state.json and the specified refinement brief first; then REQUEST.md,
@@ -1139,23 +1145,59 @@ plugins or workflows; keep that vocabulary out of the default flow.
   never say a file was processed unless you actually opened and read it.
 
 ## Workflow continuation
+Before presenting an unverified-rule summary or any decision, inspect accessible
+source automatically. Never ask "Would you like me to continue?" or permission
+for routine authorized read-only analysis, and never ask for files already
+accessible through the configured source map.
+For each unresolved rule, identify its application and trace the component ->
+Angular template (bindings and conditional display) -> service -> API request
+and response -> validator -> persistence/error handling, then inspect relevant
+tests and compare verified Legacy/CDMS/DAB behavior. A component name is only a
+navigation clue, not proof that the rule is implemented.
+Save analysis.ruleVerifications in pbi-state.json, keyed by rule and application:
+status is VERIFIED_IMPLEMENTED, PARTIALLY_IMPLEMENTED, VERIFIED_MISSING,
+UNVERIFIED_SOURCE, UNVERIFIED_RUNTIME or BUSINESS_DECISION_REQUIRED. Record
+summary, evidence IDs, checked facets (implementation, template, service,
+contract, validation, tests), exact missingBehavior, implementationTasks and
+testTasks for missing/partial behavior, or a concrete verificationTask for an
+external/runtime limit. Record searched scope for an absence claim. Cite actual
+source locations and fingerprints; do not turn an inferred contract into proof.
+Use recordRuleVerification/verifyRule when running the generator API, or follow
+the same validation contract with host file tools. Preserve approved rules and
+decisions; observations and proposed implementation tasks are not approvals.
+Mirror unresolved source/runtime tasks in the owning rule's gaps with BLOCKING
+impact so both readiness checkers retain them. Source-only proof cannot resolve
+a runtime blocker; retain it until verified runtime evidence is recorded.
+AUTO_VERIFY takes precedence over questions and summary completion while source
+is readable. After each trace, persist evidence and continue to the next rule.
+RECORD_GAP records the actual failed access or runtime-only fact with owner and
+verification criteria; it is not permission to stop. After all accessible work,
+ASK_DECISION only for a genuine requirement choice with verified existing
+behavior, supported alternatives, a recommendation when justified and Custom
+Response. Invoke the native host question tool when exposed, persist its answer
+through the existing question/decision flow, and continue automatically.
+When requirements are defined, automatically GENERATE_CONDITIONAL_PBI for remaining
+technical or runtime dependencies, VALIDATE, synchronize all mirrors, and finish
+refinement without waiting for dependency owners. Retain all security/readiness
+blockers; conditional generation never approves implementation. Never create an
+independent SQL PBI workflow: pbi-state.json is canonical.
+Use the saved evidence, architecture map and search ledger first. Cache unchanged
+reads and guides for this run, record source searches, repeated reads, tool calls
+and duration only when measurable, and invalidate dependent findings on changes.
   After each stage, apply the deterministic next-action order in the agent:
   resolve AUTO_RESOLVABLE evidence and recoverable document drift first; ask only
-  unresolved BUSINESS_DECISION or ARCHITECTURE_DECISION questions. If only
-  EXTERNAL_DEPENDENCY or RUNTIME_VERIFICATION remains, ask once whether to proceed
-  with a CONDITIONAL draft; generate it only after the user chooses the recommended
-  option or an equivalent Custom Response.
+  unresolved BUSINESS_DECISION or ARCHITECTURE_DECISION questions. When requirements
+  are defined, automatically generate a CONDITIONAL draft for EXTERNAL_DEPENDENCY,
+  RUNTIME_VERIFICATION, registration and implementation gaps. Do not ask whether to
+  continue or request evidence already unavailable to the developer.
 Do not treat an unclassified gap as resolved. Before a managed working-document
 correction, save its prior version under history/; REQUEST.md, pbi.json and
 approved decisions are preserved. Record the selected workflow response as
-workflow progress, not as a business decision. After conditional drafting,
-continue automatically through implementation planning and readiness, then
-present the external-dependency choices and exact readiness result. On resume,
-read the recorded workflow progress before asking the same choice again.
-Offer: A. Recommended — continue with the conditional PBI and its verification
-tasks; B. provide the missing repository or service contract; C. defer the
-affected implementation; D. Custom Response. Use native questions when the
-active host exposes them; otherwise use concise chat choices with custom text.
+workflow progress, not as a business decision. After conditional drafting, finish implementation/test mapping, synchronize
+acceptance criteria, evidence, decisions and the dependency register, rerun
+readiness, and report refinement complete. Present unresolved dependencies as
+owner actions in the generated artifacts, not as a question blocking refinement.
+On resume, reuse the saved conditional plan and only refresh stale evidence.
 Never create final PBI-CDMS/DAB/UI artifacts or claim implementation readiness
 from this path; the existing readiness-bound approval/generation flow remains
 the only final artifact path.
@@ -2548,7 +2590,7 @@ function newPbi(c,data){
  const number=String(data.number??'').trim();if(number&&!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(number))throw Error('PBI number: use the Azure DevOps number or an identifier of letters, digits, dots, dashes or underscores (up to 40).');
  const names=Array.isArray(data.attachments)?data.attachments.map(String):[];
  // Resuming a draft keeps its folder and the attachments already copied into it.
- let folder;if(data.folder!==undefined){folder=String(data.folder);safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');}
+ let folder;if(data.folder!==undefined){folder=String(data.folder);checkPbiFolder(folder);}
  const kept=folder&&Array.isArray(data.existingAttachments)?data.existingAttachments.filter(x=>x&&typeof x.path==='string'&&x.path.startsWith(folder+'/attachments/')&&!x.path.slice(folder.length+13).includes('/')).map(x=>(safePath(x.path),{name:String(x.name??x.path.split('/').pop()),path:x.path})):[];
  if(!draft&&!description&&!names.length&&!kept.length)throw Error('Describe the requirement, or attach a document that describes it.');
  const acMode=data.acMode===undefined?(String(data.acceptanceCriteria??'').trim()?'enter':'skip'):data.acMode;
@@ -2609,7 +2651,7 @@ function newPbi(c,data){
   +`Save this PBI's documents in ${folder}/. Investigate autonomously, without asking permission, until the rules have evidence or a genuine business decision blocks progress; then ask through the Business Decision Advisor.\nThis PBI starts with no decisions or approvals. Start fresh: use nothing from earlier PBIs, earlier chats or Copilot memory; take requirements only from this request and its attachments, and facts only from source you read for it.\nDo not change application code or publish a work item.`;
  return {folder,request,prompt,attachments,attachmentBytes:content?scans.map(s=>s.bytes):null,redactions:found,warnings,files:{[folder+'/REQUEST.md']:md,[folder+'/pbi.json']:JSON.stringify(request,null,2)+'\n',[folder+'/START-PROMPT.txt']:prompt+'\n'}};
 }
-function refinePbi(folder,changes){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+function refinePbi(folder,changes){checkPbiFolder(folder);
  changes=redactSecrets(String(changes??'')).text.trim();if(!changes)throw Error('Describe what changed, or enter “Continue from the next unresolved question”.');
  const brief=folder+'/refinements/'+stamp()+'-'+uid()+'.md';
  const prompt=`Refine the existing PBI in ${folder}/.\nRead its REQUEST.md, pbi-state.json, DRAFT-PBI.md, REFINED-PBI.md, VALIDATION-MATRIX.md, OPEN-QUESTIONS.md, DECISION-LOG.md and EVIDENCE.md where present.\nRead the new refinement brief ${brief}.\nPreserve approved decisions and save prior draft versions under this PBI's history/ folder before changing them. A change to an approved item needs renewed approval.\nSummarize the current state and present independent unresolved business questions together without repeating answered decisions. Do not create another PBI or publish a work item.`;
@@ -2625,21 +2667,62 @@ function questionProgress(state){
   answeredQuestions:qs.filter(q=>!open.includes(q)),decisions:(Array.isArray(state?.decisions)?state.decisions:[]).filter(d=>d&&typeof d==='object')};
 }
 const WORKFLOW_GAP_CLASSES=['AUTO_RESOLVABLE','BUSINESS_DECISION','ARCHITECTURE_DECISION','EXTERNAL_DEPENDENCY','RUNTIME_VERIFICATION'];
-const CONDITIONAL_CHOICES=[
- {key:'A',text:'Continue with the conditional PBI and track the external verification tasks.',recommended:true},
- {key:'B',text:'Provide the missing service contract, repository, or runtime evidence now.'},
- {key:'C',text:'Defer the affected implementation until the dependency is available.'},
- {key:'D',text:'Custom response.'}];
-const CONDITIONAL_QUESTION='Technical dependencies remain that cannot be verified in the configured repositories. Should I prepare a conditional PBI that documents the verified implementation, dependencies, and verification tasks?';
-const INCOMPLETE_CHOICES=[
- {key:'A',text:'Clarify the missing business requirements before planning.',recommended:true},
- {key:'B',text:'Provide the missing service contract, repository, or runtime evidence now.'},
- {key:'C',text:'Defer the affected implementation until the dependency is available.'},
- {key:'D',text:'Custom response.'}];
+const TECHNICAL_READINESS_CODES=new Set([
+ 'REGISTRATION_UNKNOWN','PATH_SCOPE_MISSING','PATH_UNKNOWN','PATH_CONFLICT','NO_EVIDENCE',
+ 'OWNER_UNKNOWN','OWNER_MISATTRIBUTED','LEVEL_EVIDENCE_MISSING','EVIDENCE_GAP',
+ 'REUSE_NOT_ENFORCED','BRANCH_NOT_COVERED','BRANCH_COVERAGE_UNPROVEN','DAB_BRANCH_GAP',
+ 'DAB_PLUGIN_ASSIGNED','DAB_OWNER_INVALID','IDENTITY_UNKNOWN','FEASIBILITY_PENDING',
+ 'EVIDENCE_UNKNOWN','EVIDENCE_INCOMPLETE','EVIDENCE_STALE','EVIDENCE_SOURCE_MISSING',
+ 'EVIDENCE_CHANGED','EVIDENCE_OUT_OF_SCOPE','HISTORICAL_NOT_PROOF',
+ 'FOREIGN_PBI_EVIDENCE','LEGACY_NOT_TARGET_EVIDENCE'
+]);
+function workflowDependencies(state,readiness,gaps){
+ const result=[],ids=new Set(),refs=new Set();
+ const push=(gap,rootRef)=>{
+  const id=String(gap?.id||'').trim();if(!id||ids.has(id))return;
+  ids.add(id);result.push({...gap,readinessRefs:[...new Set([...(gap.readinessRefs||[]),...(rootRef?[rootRef]:[])])]});
+  for(const ref of result[result.length-1].readinessRefs)refs.add(ref);
+ };
+ for(const gap of gaps)if(gap&&['EXTERNAL_DEPENDENCY','RUNTIME_VERIFICATION'].includes(gap.classification))push(gap);
+ for(const question of questionsOf(state).filter(q=>q.owner==='technical'&&q.blocking===true&&!READINESS.questionResolved.includes(q.status))){
+  push({id:'TECHNICAL-QUESTION-'+slug(question.id),classification:'EXTERNAL_DEPENDENCY',origin:'technical-question',
+   sourceClassification:'unresolved-technical-question',description:question.question,owner:question.ownerName||'Technical owner',
+   verification:'Resolve from configured repository evidence when available; otherwise record the exact missing source or runtime verification and its owner.'},
+   'question/'+question.id);
+ }
+ for(const rule of state?.rules||[])for(const gap of rule.gaps||[]){
+  if(!gap||gap.status==='resolved')continue;
+  if(gaps.some(existing=>Array.isArray(existing?.readinessRefs)&&existing.readinessRefs.some(ref=>String(ref).split('/')[0]===rule.id)))continue;
+  const id=gap.id||gap.description||rule.id;
+  push({id:'RULE-GAP-'+slug(rule.id+'-'+id),classification:'EXTERNAL_DEPENDENCY',origin:'rule-gap',
+   rule:rule.id,description:gap.description||String(id),owner:gap.confirmationFrom||gap.owner||'Application owner',
+   impact:gap.impact||'BLOCKING',verification:gap.verification||'Resolve the recorded rule gap and attach current source or runtime evidence.',
+   readinessRefs:[rule.id]});
+ }
+ for(const issue of readiness?.issues||[]){
+  if(issue.code==='APPROVAL_PENDING'||!TECHNICAL_READINESS_CODES.has(issue.code))continue;
+  const ref=String(issue.ref||'').split('/')[0];
+  if(ref&&refs.has(ref))continue;
+  const id='READINESS-'+issue.code+'-'+slug(issue.ref||'pbi');
+  push({id,classification:'EXTERNAL_DEPENDENCY',origin:'readiness-check',sourceClassification:issue.code,
+   description:(issue.message||issue.code)+(issue.ref?' ('+issue.ref+')':''),owner:'Target application owner',
+   verification:'Verify the recorded technical condition against the relevant source or runtime, update canonical evidence and rerun readiness.',
+   readinessRefs:issue.ref?[issue.ref]:[]});
+ }
+ for(const gap of gaps)if(gap&&(!WORKFLOW_GAP_CLASSES.includes(gap.classification)||gap.classification==='AUTO_RESOLVABLE')){
+  push({id:'UNCLASSIFIED-'+slug(gap.id||gap.description||'gap'),classification:'EXTERNAL_DEPENDENCY',
+   origin:'unclassified-gap',sourceClassification:gap.classification||'missing',
+   description:gap.description||gap.id||'Unclassified workflow gap',
+   owner:gap.owner||gap.confirmationFrom||'PBI/application owner',
+   verification:'Classify and resolve this recorded gap with its owner; do not treat it as verified or as an approved business decision.',
+   readinessRefs:gap.readinessRefs||[]});
+ }
+ return result;
+}
 function recordWorkflowChoice(state,answer={}){
  const next=JSON.parse(JSON.stringify(state||{})),option=String(answer.option??'').toUpperCase(),custom=option==='D'||option==='CUSTOM';
  if(!['A','B','C','D','CUSTOM'].includes(option))throw Error('Choose a listed workflow option or provide a custom response.');
- const response=custom?redactSecrets(String(answer.custom??answer.text??'')).text.trim():String(CONDITIONAL_CHOICES.find(x=>x.key===option).text);
+ const response=custom?redactSecrets(String(answer.custom??answer.text??'')).text.trim():String(option);
  if(custom&&response.length<3)throw Error('Enter a custom workflow response.');
  const by=String(answer.by??'user').trim();if(!by||/[\r\n]/.test(by))throw Error('Workflow response attribution must be one line.');
  if(!next.analysis||typeof next.analysis!=='object'||Array.isArray(next.analysis))next.analysis={};
@@ -2658,74 +2741,190 @@ function completeWorkflowChoice(state,id,{conditionalPbiGenerated=false,external
  if(externalEvidenceRequested||choice.option==='B')next.analysis.externalEvidenceRequested=true;
  return next;
 }
-function workflowNextAction({state,readiness,gaps=[],recoverableWork=[],requirementsComplete=false,externalDecision=null,conditionalPbiGenerated=false,implementationPlanComplete=false,artifactsAvailable=false,autoSteps=0,maxAutoSteps=8,moreAnalysisRequired=false}={}){
+const RULE_CLASSIFICATIONS=['VERIFIED_IMPLEMENTED','PARTIALLY_IMPLEMENTED','VERIFIED_MISSING','UNVERIFIED_SOURCE','UNVERIFIED_RUNTIME','BUSINESS_DECISION_REQUIRED'];
+const VERIFICATION_FACETS=['implementation','template','service','contract','validation','tests'];
+function verificationBasis(state,record){
+ const rule=(state.rules||[]).find(r=>r.id===record.rule);
+ return canon({rule:rule?{id:rule.id,rev:rule.rev,rule:rule.rule}:null,application:record.application,
+  evidence:(record.evidence||[]).map(id=>(state.evidence||[]).find(e=>e.id===id)||null)});
+}
+function sourceAccessEntries(state){
+ const access=state?.sourceAccess;
+ return Array.isArray(access)?access:access&&typeof access==='object'
+  ?Object.entries(access).map(([source,value])=>({source,...(value&&typeof value==='object'?value:{})})):[];
+}
+function validateRuleVerification(state,record){
+ if(!(state.rules||[]).some(r=>r.id===record.rule)||!SOURCE_KEYS.includes(record.application))throw Error('Verification requires an existing rule and application key.');
+ if(!RULE_CLASSIFICATIONS.includes(record.status)||!meaningful(record.summary))throw Error('Record a supported implementation classification and evidence-backed summary.');
+ const refs=record.evidence;
+ if(!Array.isArray(refs)||(!refs.length&&record.status!=='UNVERIFIED_SOURCE'))throw Error('Verification requires supporting evidence records, not a component name.');
+ if(record.status==='UNVERIFIED_SOURCE'&&!meaningful(record.sourceFailure))throw Error('Record the actual failed source operation.');
+ for(const id of refs){
+  const e=(state.evidence||[]).find(e=>e.id===id);
+  if(!e||e.stale===true||e.verification!=='VERIFIED'||historicalEvidence(e,state.pbi)||typeof e.source!=='string'||!e.source.trim()||typeof e.location!=='string'||!e.location.trim()||(!e.sha256&&!e.revision))throw Error('Verification evidence must be current, verified and source-located: '+id);
+ }
+ for(const name of VERIFICATION_FACETS){
+  const facet=record.facets?.[name];
+  if(!facet||!['checked','not-applicable','unavailable'].includes(facet.status))throw Error('Record the checked scope or limitation for '+name+'.');
+  if(facet.status==='checked'){
+   if(!Array.isArray(facet.evidence)||!facet.evidence.length||facet.evidence.some(id=>!refs.includes(id)))throw Error('Checked '+name+' needs supporting evidence IDs.');
+   if(['implementation','template'].includes(name)&&!facet.evidence.some(id=>(state.evidence||[]).some(e=>e.id===id&&e.system===record.application&&e.level==='code')))throw Error('Implementation and template proof must belong to the applicable application.');
+  }else if(!meaningful(facet.reason))throw Error('Explain why '+name+' was not checked.');
+ }
+ if(record.application==='ui'&&record.facets.template.status==='not-applicable')throw Error('UI behavior requires a template trace or an explicit source limitation.');
+ if(['VERIFIED_IMPLEMENTED','VERIFIED_MISSING'].includes(record.status)&&VERIFICATION_FACETS.some(k=>k!=='tests'&&record.facets[k].status==='unavailable'))throw Error('Do not claim verified behavior with an unavailable execution-chain facet.');
+ if(record.status==='VERIFIED_MISSING'&&(!Array.isArray(record.searched)||!record.searched.length||record.searched.some(s=>!meaningful(s))))throw Error('Verified absence requires the bounded searched scope.');
+ if(['PARTIALLY_IMPLEMENTED','VERIFIED_MISSING'].includes(record.status)){
+  if(!meaningful(record.missingBehavior)||!Array.isArray(record.implementationTasks)||!record.implementationTasks.length||record.implementationTasks.some(x=>!meaningful(x))||!Array.isArray(record.testTasks)||!record.testTasks.length||record.testTasks.some(x=>!meaningful(x)))throw Error('Missing behavior requires exact implementation and test tasks.');
+ }
+ if(['UNVERIFIED_SOURCE','UNVERIFIED_RUNTIME'].includes(record.status)&&!meaningful(record.verificationTask))throw Error('Unverified behavior requires a concrete owner/source/runtime verification task.');
+ if(record.status==='BUSINESS_DECISION_REQUIRED'&&!questionsOf(state).some(q=>q.id===record.question&&q.blocking===true))throw Error('A business classification must reference a canonical blocking question.');
+ return record;
+}
+function recordRuleVerification(state,record){
+ const next=JSON.parse(JSON.stringify(state)),saved=validateRuleVerification(next,JSON.parse(JSON.stringify(record)));
+ if(!next.analysis||typeof next.analysis!=='object'||Array.isArray(next.analysis))next.analysis={};
+ if(!Array.isArray(next.analysis.ruleVerifications))next.analysis.ruleVerifications=[];
+ const rows=next.analysis.ruleVerifications,index=rows.findIndex(r=>r.rule===saved.rule&&r.application===saved.application),previous=index<0?null:rows[index];
+ if(previous?.status==='UNVERIFIED_RUNTIME'&&saved.status!=='UNVERIFIED_RUNTIME'&&
+  !saved.evidence.some(id=>next.evidence.some(e=>e.id===id&&e.level==='runtime')))throw Error('Runtime blockers require verified runtime evidence, not source-only implementation proof.');
+ saved.basis=verificationBasis(next,saved);
+ if(index<0)rows.push(saved);else rows[index]=saved;
+ const gaps=Array.isArray(next.analysis.gaps)?next.analysis.gaps:[];
+ next.analysis.gaps=gaps.filter(g=>g.verificationRule!==saved.rule||g.application!==saved.application);
+ if(['UNVERIFIED_SOURCE','UNVERIFIED_RUNTIME'].includes(saved.status))next.analysis.gaps.push({
+  id:'VERIFY-'+saved.application+'-'+saved.rule,classification:saved.status==='UNVERIFIED_RUNTIME'?'RUNTIME_VERIFICATION':'EXTERNAL_DEPENDENCY',
+  verificationRule:saved.rule,application:saved.application,description:saved.verificationTask,owner:saved.owner||'Application owner',
+  readinessRefs:[saved.rule]});
+ if(saved.status==='UNVERIFIED_SOURCE'){
+  const access=sourceAccessEntries(next).find(s=>s.source===saved.application);
+  if(access&&Array.isArray(next.sourceAccess)){access.status='configured-inaccessible';access.reason=saved.sourceFailure;delete access.checkedFile;}
+  else if(access&&next.sourceAccess&&typeof next.sourceAccess==='object'){
+   const entry=next.sourceAccess[saved.application];entry.status='configured-inaccessible';entry.reason=saved.sourceFailure;delete entry.checkedFile;
+  }else if(typeof saved.sourcePath==='string'&&saved.sourcePath.trim()){
+   if(!Array.isArray(next.sourceAccess))next.sourceAccess=[];
+   next.sourceAccess.push({source:saved.application,path:saved.sourcePath,status:'configured-inaccessible',reason:saved.sourceFailure});
+  }
+ }
+ const rule=next.rules.find(r=>r.id===saved.rule),gapId='VERIFY-'+saved.application+'-'+saved.rule,existing=(rule.gaps||[]).find(g=>g.id===gapId);
+ rule.evidence=[...new Set([...(rule.evidence||[]),...saved.evidence])];
+ if(['UNVERIFIED_SOURCE','UNVERIFIED_RUNTIME'].includes(saved.status)){
+  if(!Array.isArray(rule.gaps))rule.gaps=[];
+  const gap={id:gapId,status:'open',impact:'BLOCKING',description:saved.verificationTask,confirmationFrom:saved.owner||'Application owner'};
+  if(existing)Object.assign(existing,gap);else rule.gaps.push(gap);
+ }else if(existing)existing.status='resolved';
+ return next;
+}
+function ruleVerificationWork(state,report,sourceMap={}){
+ const invalidEvidence=new Set((report?.issues||[]).filter(i=>['EVIDENCE_STALE','EVIDENCE_SOURCE_MISSING','EVIDENCE_CHANGED','FOREIGN_PBI_EVIDENCE'].includes(i.code)).map(i=>i.ref));
+ const rows=state?.analysis?.ruleVerifications||[],work=[],add=(rule,application,record)=>{
+  if(work.some(w=>w.rule===rule&&w.application===application))return;
+  const access=sourceAccessEntries(state).find(s=>s.source===application);
+  const current=record?.basis===verificationBasis(state,record||{rule,application})&&!(record?.evidence||[]).some(id=>invalidEvidence.has(id));
+  if(current)validateRuleVerification(state,record);
+  if(record?.status==='UNVERIFIED_RUNTIME'&&current)return;
+  if(record?.status==='UNVERIFIED_SOURCE'&&current&&access?.status!=='readable')return;
+  if(record&&!['UNVERIFIED_SOURCE'].includes(record.status)&&current&&
+    (record.evidence||[]).every(id=>{const e=(state.evidence||[]).find(e=>e.id===id);return e?.verification==='VERIFIED'&&e.stale!==true;}))return;
+  work.push({rule,application,source:access?.path||sourceMap[application]||null,accessible:access?.status==='readable'||(!access&&!!sourceMap[application]),verifyAccess:!access,
+   reason:record?'Recorded verification is incomplete or its supporting evidence changed.':'Rule implementation has not been traced.',facets:VERIFICATION_FACETS});
+ };
+ for(const record of rows)add(record.rule,record.application,record);
+ for(const r of state?.rules||[])for(const app of SOURCE_KEYS){
+  if(state.paths?.[app]?.applies!==true)continue;
+  const documented=(r.gaps||[]).some(g=>g.status!=='resolved'&&(!g.application||g.application===app));
+  const external=(state.analysis?.gaps||[]).some(g=>!['AUTO_RESOLVABLE','BUSINESS_DECISION','ARCHITECTURE_DECISION'].includes(g.classification)
+   &&(g.application?g.application===app:app!=='ui')&&(g.readinessRefs||[]).includes(r.id));
+  const pending=(r.branches||[]).some(b=>b[app]==='unverified')||r.implementation?.[app]==='unverified'||r.implementation?.[app]?.status==='unverified'||(r.paths?.[app]?.status==='unknown'&&!external);
+  if(pending&&!documented)add(r.id,app,rows.find(x=>x.rule===r.id&&x.application===app));
+ }
+ return work;
+}
+async function verifyRule(root,folder,record){
+ const raw=await read(root,folder+'/pbi-state.json');if(raw===null)throw Error('Canonical PBI state is required.');
+ const state=recordRuleVerification(JSON.parse(raw),record);
+ await savePbiFiles(root,folder,{'pbi-state.json':JSON.stringify(state,null,2)+'\n'},{'pbi-state.json':raw});
+ return advanceWorkflow(root,folder);
+}
+async function verifyAccessibleRules(root,folder,investigate){
+ if(typeof investigate!=='function')throw Error('Provide the active host read-only investigation adapter.');
+ let run=await advanceWorkflow(root,folder);
+ for(let step=0;step<8&&run.next.action==='AUTO_VERIFY';step++){
+  const task=run.next.work[0],finding=await investigate(task,run.state);
+  if(!finding||!finding.record)throw Error('Investigation must return an evidence-backed classification or an explicit source/runtime limitation.');
+  if(finding.record.rule!==task.rule||finding.record.application!==task.application)throw Error('Investigation returned a different rule or application.');
+  const raw=await read(root,folder+'/pbi-state.json');
+  if(canon(JSON.parse(raw))!==canon(run.state))throw Error('PBI changed during source investigation; resume its current state.');
+  const state=JSON.parse(raw);
+  for(const e of finding.evidence||[]){
+   if(e.kind==='repo-file'&&e.sha256!==await sourceHash(root,e.source))throw Error('Evidence source changed or was not read: '+e.source);
+   const existing=(state.evidence||[]).find(x=>x.id===e.id);
+   if(existing&&canon(existing)!==canon(e))throw Error('Use a new evidence ID instead of overwriting an existing observation: '+e.id);
+   if(!existing){if(!Array.isArray(state.evidence))state.evidence=[];state.evidence.push(e);}
+  }
+  const record=finding.record.status==='UNVERIFIED_SOURCE'?{...finding.record,sourcePath:task.source}:finding.record;
+  const next=recordRuleVerification(state,record);
+  await savePbiFiles(root,folder,{'pbi-state.json':JSON.stringify(next,null,2)+'\n'},{'pbi-state.json':raw});
+  run=await advanceWorkflow(root,folder);
+ }
+ return run;
+}
+function workflowNextAction({state,readiness,gaps=[],recoverableWork=[],requirementsComplete=false,externalDecision=null,conditionalPbiGenerated=false,implementationPlanComplete=false,artifactsAvailable=false,autoSteps=0,maxAutoSteps=8,moreAnalysisRequired=false,sourceMap={}}={}){
  if(!Number.isInteger(maxAutoSteps)||maxAutoSteps<1||maxAutoSteps>8||!Number.isInteger(autoSteps)||autoSteps<0)throw Error('Use an automatic workflow budget of 1 to 8 steps and a non-negative step count.');
- const ready=readiness?.computedStatus||readiness?.status||'',classes=new Set(WORKFLOW_GAP_CLASSES);
- const savedChoice=[...(Array.isArray(state?.analysis?.workflowChoices)?state.analysis.workflowChoices:[])].reverse().find(x=>x&&x.kind==='external-dependency'&&['selected','applied'].includes(x.status));
- const chosen=externalDecision||savedChoice;
+ const ready=readiness?.computedStatus||readiness?.status||'';
  const conditionalExists=conditionalPbiGenerated||state?.analysis?.conditionalPbiGenerated===true;
- const evidenceRequested=state?.analysis?.externalEvidenceRequested===true;
- const invalid=gaps.filter(g=>!g||!classes.has(g.classification));
- const questions=questionsOf(state).filter(q=>q.blocking===true&&['po-ba','technical'].includes(q.owner)&&!READINESS.questionResolved.includes(q.status));
+ const questions=questionsOf(state).filter(q=>q.blocking===true&&q.owner==='po-ba'&&!READINESS.questionResolved.includes(q.status));
  const result=(action,stage,reason,next,extra={})=>({action,stage,reason,next,...(action==='BLOCKED_EXTERNAL'?{decision:{
   question:reason+' Which action should follow?',why:next,recommended:'A',allowCustom:true,options:[
    {key:'A',text:next,recommended:true},{key:'B',text:'Provide the missing owner, source or runtime evidence.'},
    {key:'C',text:'Save the draft with blockers open and defer affected implementation.'},{key:'D',text:'Custom Response.'}]}}:{}),...extra});
- if(ready==='Development-Ready')return artifactsAvailable
-  ?result('COMPLETE','FINAL_REVIEW','The readiness check passed and generated artifacts are present.','Present the final review; do not infer approval.')
-  :result('AUTO_CONTINUE','PBI_GENERATION','The readiness check passed, but generated artifacts have not been verified.','Verify the existing final artifacts or use the readiness-bound approval/generation flow when explicit approval is complete.');
- if(ready==='Ready for Review')return result('COMPLETE','FINAL_REVIEW','Only explicit final user review and approval remain.','Present the review and wait for an explicit user choice.');
- if(invalid.length)return result('BLOCKED_EXTERNAL','EVIDENCE_RESOLUTION','One or more gaps are not classified; do not assume or silently resolve them.','Classify each gap from verified evidence before choosing the next action.',{unclassified:invalid});
+ const verification=ruleVerificationWork(state,readiness,sourceMap),accessible=verification.filter(w=>w.accessible);
+ if(accessible.length)return result('AUTO_VERIFY','IMPLEMENTATION_ANALYSIS','Unverified rules have accessible application source.','Trace the next rule through component, template, service, API, validation and tests; record its classification and continue without asking permission.',{work:accessible});
+ if(verification.length)return result('RECORD_GAP','EVIDENCE_RESOLUTION','Unverified source cannot currently be read.','Record the exact access failure, affected behavior, owner and verification task, then continue independent work or present the conditional-PBI interaction.',{work:verification});
+ const pendingVerification=gaps.some(g=>g.verificationRule);
  const automatic=[...gaps.filter(g=>g.classification==='AUTO_RESOLVABLE'),...recoverableWork];
  if(automatic.length){
   if(autoSteps>=maxAutoSteps)return result('BLOCKED_EXTERNAL','EVIDENCE_RESOLUTION','Automatic progress reached its bounded step limit without new evidence.','Stop repeating the same work and present the concrete blocker or choices.',{work:automatic});
   return result('AUTO_CONTINUE','EVIDENCE_RESOLUTION','Recoverable repository or document work remains.','Resolve it from configured sources or canonical state, record only verified changes, then recheck readiness.',{work:automatic});}
  const decisions=[...questions.map(q=>({id:q.id,question:q.question})),...gaps.filter(g=>g.classification==='BUSINESS_DECISION'||g.classification==='ARCHITECTURE_DECISION')];
- if(decisions.length)return result('ASK_DECISION','REQUIREMENT_CLARIFICATION','A genuine business or architecture decision remains after evidence review.','Ask the unresolved decisions once, with supported options and Custom Response.',{decisions});
- if(!readiness)return result('AUTO_CONTINUE','READINESS_VALIDATION','No deterministic readiness result has been supplied yet.','Run the available readiness check; if the host cannot run it, record that limitation and continue only with independent work.');
- if(!ready)return result('BLOCKED_EXTERNAL','READINESS_VALIDATION','The supplied readiness result has no computed status.','Do not claim readiness; rerun the deterministic check or report why it is unavailable.');
+ if(decisions.length){
+  const q=questions[0],options=Array.isArray(q?.options)?q.options:[];
+  return result('ASK_DECISION','REQUIREMENT_CLARIFICATION','A genuine business or architecture decision remains after evidence review.','Ask the unresolved decisions once, with supported options and Custom Response.',{decisions,...(q?{decision:{
+   question:q.question,why:q.recommendationWhy||q.recommendationReason||q.context||'Resolve the requirement against the recorded existing behavior.',
+   existingBehavior:(q.evidence||[]).map(id=>(state.evidence||[]).find(e=>e.id===id)?.summary).filter(Boolean),
+   ...(q.recommended?{recommended:q.recommended}:{}),allowCustom:true,options:[...options,{key:'CUSTOM',text:'Custom Response.'}]}}:{})});
+ }
  const coveredIssues=new Set([
-  ...gaps.flatMap(g=>Array.isArray(g.readinessRefs)?g.readinessRefs:[]),
+  ...gaps.flatMap(g=>Array.isArray(g.readinessRefs)?g.readinessRefs.map(ref=>String(ref).split('/')[0]):[]),
   ...recoverableWork.flatMap(w=>w&&typeof w==='object'&&Array.isArray(w.readinessRefs)?w.readinessRefs:w&&typeof w==='object'&&w.ref?[w.ref]:[])
  ]);
- const unclassifiedIssues=(Array.isArray(readiness.issues)?readiness.issues:[]).filter(i=>i.code!=='APPROVAL_PENDING'&&!coveredIssues.has(i.ref));
- if(unclassifiedIssues.length&&!conditionalExists)return result('BLOCKED_EXTERNAL','READINESS_VALIDATION','Readiness issues remain unclassified; do not generate a conditional PBI from a partial explanation.','Classify each issue as recoverable, a decision, an external dependency, or runtime verification, then continue.',{issues:unclassifiedIssues});
+ const unclassifiedIssues=(Array.isArray(readiness?.issues)?readiness.issues:[]).filter(i=>i.code!=='APPROVAL_PENDING'&&!coveredIssues.has(String(i.ref||'').split('/')[0])&&!TECHNICAL_READINESS_CODES.has(i.code));
+ if(unclassifiedIssues.length)return result('BLOCKED_EXTERNAL','READINESS_VALIDATION','A business or structural readiness issue remains that cannot safely be treated as an implementation dependency.','Resolve the genuine requirement or document-integrity issue from source; technical evidence and runtime gaps are tracked separately.',{issues:unclassifiedIssues});
  if(moreAnalysisRequired){
   if(autoSteps>=maxAutoSteps)return result('BLOCKED_EXTERNAL','IMPLEMENTATION_ANALYSIS','Automatic analysis reached its bounded step limit.','State what was searched and what remains, then offer the next concrete choice.');
   return result('AUTO_CONTINUE','IMPLEMENTATION_ANALYSIS','The current stage is complete and more targeted analysis remains.','Continue using the saved indexes and targeted source scope.');}
- const external=gaps.filter(g=>g.classification==='EXTERNAL_DEPENDENCY'||g.classification==='RUNTIME_VERIFICATION');
+ const external=workflowDependencies(state,readiness,gaps);
  if(external.length){
-  if(!chosen&&!conditionalExists&&!evidenceRequested){
-   const question=requirementsComplete?CONDITIONAL_QUESTION:'Business requirements are not yet sufficient for conditional drafting. Which missing requirement should be clarified before proceeding?';
-   const options=requirementsComplete?CONDITIONAL_CHOICES:INCOMPLETE_CHOICES;
-   return result('ASK_DECISION',requirementsComplete?'EVIDENCE_RESOLUTION':'REQUIREMENT_CLARIFICATION',question,'Ask once with the supported choices and Custom Response; do not stop at an evidence report.',{decision:{question,why:requirementsComplete?'Accessible source and saved evidence have been checked; these remaining facts require an external owner or runtime environment.':'Resolve the missing business requirement before drafting; external evidence remains separately tracked.',recommended:'A',allowCustom:true,options},gaps:external});}
-  if(evidenceRequested&&!externalDecision&&!conditionalExists)return result('BLOCKED_EXTERNAL','EVIDENCE_RESOLUTION','The requested external evidence has not been recorded yet.','Name the exact evidence and owner, continue independent work, and do not repeat the same request until new evidence or a changed scope arrives.',{gaps:external,choices:CONDITIONAL_CHOICES});
-  const choice=String(chosen?.option||'').toUpperCase(),custom=choice==='D'||choice==='CUSTOM';
-  if(choice==='B')return result('AUTO_CONTINUE','EVIDENCE_RESOLUTION','The user chose to provide missing evidence.','Inspect the contract or runtime evidence supplied in the conversation, classify it, update only affected records, and continue without requesting already-accessible files.',{gaps:external,response:chosen.response||chosen.text||''});
-  if(custom&&chosen.status!=='applied')return result('AUTO_CONTINUE','EVIDENCE_RESOLUTION','A custom response was supplied for the external dependencies.','Apply it to the affected scope and dependencies without treating it as proof or a new approved business decision; continue to the next valid stage.',{gaps:external,response:chosen.response||chosen.text||''});
-  if(custom&&!conditionalExists)return result('BLOCKED_EXTERNAL','EVIDENCE_RESOLUTION','The custom workflow response was applied; external verification is still outstanding.','Choose the next owner verification task or supply new evidence without repeating the custom action.',{gaps:external});
-  if(choice==='C'){
-   if(!requirementsComplete)return result('BLOCKED_EXTERNAL','REQUIREMENT_CLARIFICATION','Business requirements are incomplete; the affected implementation cannot be safely deferred into a usable conditional PBI.','Clarify the missing requirement or give a custom response.',{gaps:external,choices:INCOMPLETE_CHOICES});
-   if(!conditionalExists)return result('GENERATE_CONDITIONAL_PBI','IMPLEMENTATION_PLANNING','The user chose to defer the externally dependent implementation.','Generate a conditional draft that explicitly excludes/defer the affected work and lists its verification tasks. Keep readiness and final artifacts unchanged.',{gaps:external,deferred:true});
-  }
-  if(conditionalExists){
-   if(!implementationPlanComplete)return result('AUTO_CONTINUE','IMPLEMENTATION_PLANNING','The conditional working draft exists; implementation and verification tasks still need a completeness pass.','Check responsibilities, dependency owners, acceptance criteria, tests, and verification tasks; then rerun readiness.',{gaps:external,deferred:choice==='C'});
-   const ordered=[...external].sort((a,b)=>Number(/security|authoriz|identity/i.test(b.description||b.id))-Number(/security|authoriz|identity/i.test(a.description||a.id)));
-   return result('ASK_DECISION','DEPENDENCY_VERIFICATION','The conditional PBI and implementation/verification plan are available; external blockers remain and readiness is not implementation-ready.','Present the conditional draft, exact readiness result, and owner actions. Do not request final approval or claim implementation readiness.',{gaps:external,conditional:true,finalAllowed:false,deferred:choice==='C',
-    remainingIssues:unclassifiedIssues,decision:{question:'Which outstanding dependency should be verified next?',why:'The conditional plan is saved; each remaining claim still needs owner or runtime evidence. Verify security-sensitive dependencies first when present.',
-     recommended:'A',allowCustom:true,options:[...ordered.map((g,i)=>({key:String.fromCharCode(65+i),text:(g.description||g.id)+(g.owner?' - '+g.owner:''),recommended:i===0})),{key:'CUSTOM',text:'Custom Response.'}]}});}
-  if(choice==='A'||choice==='C'){
-   if(!requirementsComplete)return result('ASK_DECISION','REQUIREMENT_CLARIFICATION','Business requirements are not yet sufficient for conditional drafting.','Resolve the missing requirement first; do not generate the conditional PBI yet.',{gaps:external,choices:INCOMPLETE_CHOICES});
-   if(!conditionalExists)return result('GENERATE_CONDITIONAL_PBI','IMPLEMENTATION_PLANNING','The user chose conditional planning; requirements are defined and only external dependencies or runtime verification remain.','Update DRAFT-PBI.md with verified behavior, approved criteria, existing implementation references, responsibilities, dependencies, owners where known, implementation tasks, and concrete verification criteria. Label it CONDITIONAL, preserve the readiness result, and do not generate final artifacts.',{gaps:external,deferred:choice==='C'});
-  }
-  return result('ASK_DECISION','EVIDENCE_RESOLUTION',CONDITIONAL_QUESTION,'The response did not select a listed action. Clarify once or accept a Custom Response.',{decision:{question:CONDITIONAL_QUESTION,why:'Choose how to handle the remaining external/runtime dependencies.',recommended:'A',allowCustom:true,options:CONDITIONAL_CHOICES},gaps:external});}
+  if(!requirementsComplete)return result('ASK_DECISION','REQUIREMENT_CLARIFICATION','The business requirements are not complete; technical dependencies will be documented without blocking refinement.','Ask only for the missing business outcome or acceptance condition.',{gaps:external,decision:{
+   question:'Which business outcome or acceptance condition is still undecided?',why:'Technical dependencies will be recorded and will not be requested as a prerequisite.',allowCustom:true,options:[{key:'CUSTOM',text:'Custom Response.'}]}});
+  if(!conditionalExists)return result('GENERATE_CONDITIONAL_PBI','IMPLEMENTATION_PLANNING','Requirements are defined; remaining technical evidence, registration, runtime and implementation gaps are dependencies, not refinement blockers.','Generate and synchronize the conditional PBI now. Preserve readiness blockers and do not create final implementation artifacts.',{gaps:external,finalAllowed:false});
+  return result('REFINEMENT_COMPLETE','REFINEMENT_COMPLETE','The conditional PBI and dependency register are saved and synchronized.','Present the completed refinement and exact implementation-readiness result; do not wait for dependency owners.',{gaps:external,conditional:true,finalAllowed:false,implementationReady:false,remainingIssues:unclassifiedIssues});}
+ if(!readiness)return result('VALIDATE','READINESS_VALIDATION','No deterministic readiness result has been supplied yet.','Run the available readiness check; if the host cannot run it, record that limitation and continue only with independent work.');
+ if(!ready)return result('BLOCKED_EXTERNAL','READINESS_VALIDATION','The supplied readiness result has no computed status.','Do not claim readiness; rerun the deterministic check or report why it is unavailable.');
+ if(conditionalExists)return result('REFINEMENT_COMPLETE','REFINEMENT_COMPLETE','The conditional PBI remains synchronized; no dependency owner action is required to finish refinement.','Present the saved draft and current readiness result.',{conditional:true,finalAllowed:false,implementationReady:false});
+ if(ready==='Development-Ready'&&!pendingVerification)return artifactsAvailable
+  ?result('COMPLETE','FINAL_REVIEW','The readiness check passed and generated artifacts are present.','Present the final review; do not infer approval.')
+  :result('AUTO_CONTINUE','PBI_GENERATION','The readiness check passed, but generated artifacts have not been verified.','Verify the existing final artifacts or use the readiness-bound approval/generation flow when explicit approval is complete.');
+ if(ready==='Ready for Review'&&!pendingVerification)return result('ASK_DECISION','FINAL_REVIEW','Only explicit final user review and approval remain.','Present the review and wait for an explicit user choice.',{decision:{
+  question:'The draft is ready for final review. What should happen next?',why:'Readiness permits review, not final approval or implementation authorization.',allowCustom:true,
+  options:[{key:'A',text:'Review and explicitly approve generation of the final PBIs.'},{key:'B',text:'Request changes.'},{key:'C',text:'Save the draft without approval.'},{key:'CUSTOM',text:'Custom Response.'}]}});
  if(readiness?.issues?.length)return result('BLOCKED_EXTERNAL','READINESS_VALIDATION','The readiness check has unresolved issues that were not classified as recoverable or external.','Classify and resolve the issues; do not report only the readiness result.',{issues:readiness.issues});
  if(!['Ready for Review','Development-Ready'].includes(ready))return result('BLOCKED_EXTERNAL','READINESS_VALIDATION','Readiness is not at a reviewable state.','Recheck the PBI and classify or resolve every remaining issue before completing.');
  return result('COMPLETE','FINAL_REVIEW','No unresolved questions, classified gaps, or readiness issues remain.','Present the concise final review and the verified readiness result.');
 }
 function recordWorkflowProgress(state,next,fingerprint){
  const s=JSON.parse(JSON.stringify(state)),previous=s.analysis?.workflow;
- const unchanged=previous?.inputFingerprint===fingerprint,automatic=['AUTO_CONTINUE','GENERATE_CONDITIONAL_PBI'].includes(next.action);
+ const unchanged=previous?.inputFingerprint===fingerprint,automatic=['AUTO_CONTINUE','AUTO_VERIFY','RECORD_GAP','VALIDATE','GENERATE_CONDITIONAL_PBI'].includes(next.action);
  const repeated=unchanged&&previous.action===next.action&&previous.stage===next.stage;
  const steps=unchanged?(previous.automaticSteps||0):0;
  if(automatic&&(repeated||steps>=8))next={action:'ASK_DECISION',stage:next.stage,reason:'No new evidence or workflow progress; automatic work is paused to prevent a loop.',
@@ -2763,15 +2962,17 @@ function skipQuestion(state,id){
  q.status='deferred';return {state:s};
 }
 // Writes the new state only if nobody changed it meanwhile; prior versions go to history/.
-async function updateQuestions(root,folder,change){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+async function updateQuestions(root,folder,change){checkPbiFolder(folder);
  const p=folder+'/pbi-state.json',raw=await read(root,p);if(raw===null)throw Error('This PBI has no pbi-state.json yet. Ask the agent to start the analysis first.');
  let state;try{state=JSON.parse(raw);}catch{throw Error('pbi-state.json is not valid JSON. Ask the agent to repair it before answering.');}
  const {state:next,decision,decisions=decision?[decision]:[],notes=[]}=change(state),st=stamp()+'-'+uid(),hasLog=decisions.length||notes.length,log=hasLog?await read(root,folder+'/DECISION-LOG.md'):null;
  const nextState=JSON.stringify(next,null,2)+'\n',pLog=folder+'/DECISION-LOG.md';
- let nextLog=log;
+ const canonicalAt=log?.search(/^## Canonical decision records[ \t]*\r?$/m)??-1,canonicalTail=canonicalAt>=0?log.slice(canonicalAt):'';
+ let nextLog=canonicalAt>=0?log.slice(0,canonicalAt):log;
  for(const item of decisions){const q=questionsOf(next).find(x=>x.decisionRef===item.id),base=nextLog??'# Decision log\n\n',end=/[.!?]$/.test(item.decision)?' ':'. ';
   nextLog=base+(base.endsWith('\n')?'':'\n')+'- '+item.id+' (approved'+(item.supersedes?', supersedes '+item.supersedes:'')+'): '+q.id+' '+String(q.question??'')+' → '+item.decision+end+item.evidence+'.\n';}
  if(notes.length)nextLog=(nextLog||'# Decision log\n\n')+'\n'+notes.map(note=>'- '+note).join('\n')+'\n';
+ if(canonicalTail)nextLog=(nextLog||'').trimEnd()+'\n\n'+canonicalTail;
  await write(root,folder+'/history/pbi-state.'+st+'.json',raw);if(log!==null)await write(root,folder+'/history/DECISION-LOG.'+st+'.md',log);
  if(await read(root,p)!==raw||(hasLog&&await read(root,pLog)!==log))throw Error('PBI state or decision log changed while you were answering. Reload the questions and try again.');
  const touched=[];
@@ -2802,9 +3003,13 @@ const WORKING_SECTIONS=[
  {file:'DRAFT-PBI.md',title:'Acceptance criteria',aliases:[],list:'acceptanceCriteria',fields:['id','rules','type','criterion']},
  {file:'DRAFT-PBI.md',title:'Dependencies and cross-repository responsibilities',aliases:['Dependencies'],list:'dependencies',fields:['id','repository','responsibility','owner','verification']},
  {file:'DRAFT-PBI.md',title:'Readiness',aliases:[],status:true},
+ {file:'DRAFT-PBI.md',title:'Verified implementation and proposed work',aliases:[],analysis:true,list:'ruleVerifications',fields:['rule','application','status','summary','missingBehavior','implementationTasks','testTasks','verificationTask']},
+ {file:'VALIDATION-MATRIX.md',title:'Canonical acceptance coverage',aliases:[],list:'acceptanceCriteria',fields:['id','rules','type','criterion']},
+ {file:'VALIDATION-MATRIX.md',title:'Canonical implementation verification',aliases:[],analysis:true,list:'ruleVerifications',fields:['rule','application','status','facets','evidence','searched','missingBehavior','testTasks','verificationTask']},
  {file:'EVIDENCE.md',title:'Canonical evidence records',aliases:[],list:'evidence',fields:['id','verification','level','kind','system','source','location','revision','sha256','stale','staleReason','dependsOn','summary']},
  {file:'DECISION-LOG.md',title:'Canonical decision records',aliases:[],list:'decisions',fields:['id','status','decision','evidence','supersedes']},
- {file:'OPEN-QUESTIONS.md',title:'Canonical questions and blockers',aliases:[],list:'questions',fields:['id','question','status','owner','resolution','decisionRef']}
+ {file:'OPEN-QUESTIONS.md',title:'Canonical questions and blockers',aliases:[],list:'questions',fields:['id','question','status','owner','resolution','decisionRef']},
+ {file:'OPEN-QUESTIONS.md',title:'Canonical external verification tasks',aliases:[],analysis:true,list:'gaps',fields:['id','classification','verificationRule','application','description','owner','readinessRefs']}
 ];
 function replaceWorkingSection(text,title,aliases,body){
  const names=[title,...aliases].map(s=>s.toLowerCase()),headings=[...text.matchAll(/^(#{1,6})[ \t]+(.+?)[ \t]*\r?$/gm)];
@@ -2819,7 +3024,7 @@ function workingFiles(state,docs){
  const files=Object.fromEntries(Object.entries(docs).filter(([,v])=>v!==null)),value=x=>(typeof x==='string'?x:canon(x)).replace(/\r?\n/g,'<br>');
  for(const section of WORKING_SECTIONS){
   if(section.status){files[section.file]=replaceWorkingSection(files[section.file]||'# Working PBI',section.title,section.aliases,'Canonical status: '+state.status+'. See READINESS.json for the current checker result; prior narrative check counts are historical.\n\nApprovals: '+canon(state.approvals||{})+'\n\nConditional drafting does not approve implementation or close security blockers.');continue;}
-  const records=Array.isArray(state[section.list])?state[section.list]:[];
+  const source=section.analysis?state.analysis:state,records=Array.isArray(source?.[section.list])?source[section.list]:[];
   const body=records.map(record=>'- '+section.fields.filter(k=>record&&record[k]!==undefined).map(k=>k+': '+value(record[k])).join(' | ')).join('\n')||'None recorded.';
   files[section.file]=replaceWorkingSection(files[section.file]||'# '+section.file.replace('.md',''),section.title,section.aliases,body);
  }
@@ -2839,7 +3044,7 @@ function workingFiles(state,docs){
  return files;
 }
 async function savePbiFiles(root,folder,files,expected={}){
- safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+ checkPbiFolder(folder);
  const rows=await plan(root,Object.fromEntries(Object.entries(files).map(([name,text])=>{safePath(name);return [folder+'/'+name,text];})),false,true);
  for(const row of rows){const name=row.path.slice(folder.length+1);if(Object.prototype.hasOwnProperty.call(expected,name)&&row.before!==expected[name])throw Error('PBI changed during synchronization: '+name);}
  const changed=rows.filter(r=>r.state!=='unchanged'),batch=stamp()+'-'+uid();
@@ -2861,25 +3066,67 @@ async function synchronizePbi(root,folder){
   state.status=report.computedStatus;
  }
  if(state.status!==report.claimedStatus)throw Error('Readiness did not stabilize after synchronization; inspect the canonical state.');
- for(const name of await savePbiFiles(root,folder,{'READINESS.json':JSON.stringify(report,null,2)+'\n'}))changed.add(name);
+ const savedReport=await read(root,folder+'/READINESS.json');let sameReport=false;
+ if(savedReport!==null)try{sameReport=canon(JSON.parse(savedReport))===canon(report);}catch(e){if(!(e instanceof SyntaxError))throw e;}
+ for(const name of await savePbiFiles(root,folder,{'READINESS.json':sameReport?savedReport:JSON.stringify(report,null,2)+'\n'},{'READINESS.json':savedReport}))changed.add(name);
  return {state,report,changed:[...changed]};
 }
+function conditionalPlanComplete(plan){
+ return !!plan&&Array.isArray(plan.acceptanceCriteria)&&plan.acceptanceCriteria.length>0
+  &&Array.isArray(plan.implementationTasks)&&Array.isArray(plan.testTasks)&&plan.testTasks.length>0
+  &&Array.isArray(plan.technicalDependencies)&&Array.isArray(plan.verifiedBehavior)
+  &&plan.readiness&&typeof plan.readiness.computedStatus==='string';
+}
+function conditionalDraftComplete(draft){
+ return typeof draft==='string'&&[
+  '### Target paths','### Conditional acceptance criteria','### Implementation steps','### Acceptance-criteria regression tests',
+  '### Unresolved technical dependencies','### Reused verified behavior','### Implementation readiness snapshot'
+ ].every(heading=>draft.includes(heading));
+}
 async function generateConditionalPbi(root,folder,{gaps=[],requirementsComplete=false}={}){
- const raw=await read(root,folder+'/pbi-state.json');if(raw===null)throw Error('Canonical state is required.');
- const state=JSON.parse(raw),report=await checkPbi(root,folder),next=workflowNextAction({state,readiness:report,gaps,requirementsComplete});
- if(next.action!=='GENERATE_CONDITIONAL_PBI')throw Error('Conditional generation is not authorized by the current workflow: '+next.action+'. '+next.reason);
- const choice=[...state.analysis.workflowChoices].reverse().find(c=>c.kind==='external-dependency'&&c.status==='selected');
- if(!choice)throw Error('A selected conditional workflow response is required.');
- const updated=completeWorkflowChoice(state,choice.id,{conditionalPbiGenerated:true});
+ const synced=await synchronizePbi(root,folder),state=synced.state,report=synced.report;
+ const raw=await read(root,folder+'/pbi-state.json'),next=workflowNextAction({state,readiness:report,gaps,requirementsComplete});
+ const priorDraft=await read(root,folder+'/DRAFT-PBI.md');
+ const rebuild=state.analysis?.conditionalPbiGenerated===true
+  &&(!conditionalPlanComplete(state.analysis.conditionalPlan)||!conditionalDraftComplete(priorDraft));
+ if(state.analysis?.conditionalPbiGenerated===true&&!rebuild)return synced;
+ if((!rebuild&&next.action!=='GENERATE_CONDITIONAL_PBI')||(rebuild&&next.action!=='REFINEMENT_COMPLETE'))
+  throw Error('Conditional generation is not authorized by the current workflow: '+next.action+'. '+next.reason);
+ const updated=JSON.parse(JSON.stringify(state));
+ if(!updated.analysis||typeof updated.analysis!=='object'||Array.isArray(updated.analysis))updated.analysis={};
+ updated.analysis.conditionalPbiGenerated=true;
+ updated.analysis.requirementsComplete=requirementsComplete;
+ if(!Array.isArray(updated.analysis.gaps))updated.analysis.gaps=[];
+ for(const gap of next.gaps||[])if(!updated.analysis.gaps.some(existing=>existing.id===gap.id))
+  updated.analysis.gaps.push({...gap,status:gap.status||'open'});
+ const verifications=updated.analysis.ruleVerifications||[];
+ const verifiedEvidence=(updated.evidence||[]).filter(e=>e.verification==='VERIFIED'&&e.stale!==true&&!historicalEvidence(e,updated.pbi));
  updated.analysis.conditionalPlan={
-  implementationTasks:(state.rules||[]).map(r=>({rule:r.id,action:r.targetAction,status:next.deferred?'deferred-pending-verification':'planned-not-authorized',requirement:r.rule,owner:r.owner,dependencies:r.dependencies||[]})),
-  verificationTasks:gaps.map(g=>({id:g.id,description:g.description||g.id,owner:g.owner||g.confirmationFrom||'Owner not yet confirmed',verification:g.verification||'Obtain owner evidence, verify the affected requirement, and rerun readiness.'})),
-  dependencies:state.dependencies||[],verifiedBehavior:(state.evidence||[]).filter(e=>(e.verification===undefined||e.verification==='VERIFIED')&&!historicalEvidence(e,state.pbi))
-   .map(e=>({id:e.id,summary:e.summary,source:e.source,location:e.location,revision:e.revision})),deferred:next.deferred===true};
+  targetPaths:updated.paths||{},
+  acceptanceCriteria:(updated.acceptanceCriteria||[]).map(a=>({id:a.id,rev:a.rev,type:a.type,rules:a.rules,criterion:a.criterion})),
+  implementationTasks:(updated.rules||[]).map(r=>({rule:r.id,action:r.targetAction,status:'planned-not-authorized',requirement:r.rule,owner:r.owner,dependencies:r.dependencies||[]})),
+  implementationGuidance:verifications.map(v=>({rule:v.rule,application:v.application,status:v.status,summary:v.summary,
+   missingBehavior:v.missingBehavior,implementationTasks:v.implementationTasks||[],evidence:(v.evidence||[]).map(id=>(updated.evidence||[]).find(e=>e.id===id)).filter(Boolean)
+    .map(e=>({id:e.id,source:e.source,location:e.location,summary:e.summary}))})),
+  testTasks:[...verifications.flatMap(v=>(v.testTasks||[]).map(test=>({rule:v.rule,application:v.application,test}))),
+   ...(updated.acceptanceCriteria||[]).map(a=>({criterion:a.id,rules:a.rules,test:'Add a regression test for the approved acceptance criterion: '+a.criterion}))],
+  technicalDependencies:(next.gaps||[]).map(g=>({id:g.id,classification:g.classification||'EXTERNAL_DEPENDENCY',sourceClassification:g.sourceClassification,
+   rule:g.rule,description:g.description||g.id,owner:g.owner||g.confirmationFrom||'Owner not yet confirmed',
+   impact:g.impact||'BLOCKING',readinessRefs:g.readinessRefs||[],verification:g.verification||'Obtain owner/source/runtime evidence, update canonical state, and rerun readiness.'})),
+  verificationTasks:(next.gaps||[]).map(g=>({id:g.id,description:g.description||g.id,owner:g.owner||g.confirmationFrom||'Owner not yet confirmed',
+   verification:g.verification||'Obtain owner/source/runtime evidence, update canonical state, and rerun readiness.'})),
+  dependencies:updated.dependencies||[],
+  verifiedBehavior:verifiedEvidence.map(e=>({id:e.id,summary:e.summary,source:e.source,location:e.location,revision:e.revision})),
+  readiness:{computedStatus:report.computedStatus,finalAllowed:report.finalAllowed,issues:report.issues},
+  securityConsiderations:'All existing security and readiness gates remain in force. This conditional refinement does not verify runtime security, grant approval, or authorize implementation.'};
+ const sectionNames={targetPaths:'Target paths',acceptanceCriteria:'Conditional acceptance criteria',implementationTasks:'Implementation steps',
+  implementationGuidance:'Evidence-backed implementation guidance',testTasks:'Acceptance-criteria regression tests',
+  technicalDependencies:'Unresolved technical dependencies',verificationTasks:'Verification tasks',
+  dependencies:'Cross-repository dependencies',verifiedBehavior:'Reused verified behavior',
+  readiness:'Implementation readiness snapshot',securityConsiderations:'Security and approval gates'};
  const body='CONDITIONAL working draft only. Not implementation-ready or finally approved. All security and readiness blockers remain open.\n\n'
   +'Readiness before generation: '+report.computedStatus+'. Canonical readiness is rerun after saving.\n\n'
-  +Object.entries(updated.analysis.conditionalPlan).map(([key,v])=>'### '+key+'\n\n'+(Array.isArray(v)?v.map(x=>'- '+(typeof x==='string'?x:canon(x))).join('\n'):String(v))).join('\n\n');
- const priorDraft=await read(root,folder+'/DRAFT-PBI.md');
+  +Object.entries(updated.analysis.conditionalPlan).map(([key,v])=>'### '+(sectionNames[key]||key)+'\n\n'+(Array.isArray(v)?v.map(x=>'- '+(typeof x==='string'?x:canon(x))).join('\n'):typeof v==='string'?v:canon(v))).join('\n\n');
  const draft=replaceWorkingSection(priorDraft||'# Conditional PBI','Conditional implementation plan - not implementation-ready',['Conditional implementation plan — not implementation-ready'],body);
  await savePbiFiles(root,folder,{'pbi-state.json':JSON.stringify(updated,null,2)+'\n','DRAFT-PBI.md':draft},{'pbi-state.json':raw,'DRAFT-PBI.md':priorDraft});
  return synchronizePbi(root,folder);
@@ -2890,9 +3137,29 @@ async function advanceWorkflow(root,folder,options={}){
  if(JSON.parse(initialRaw)?.pbi!==folder.split('/').pop())throw Error('Resume requires this folder\'s canonical PBI state.');
  await refreshEvidence(root);
  let synced=await synchronizePbi(root,folder),state=synced.state,report=synced.report;
- const input={...options,gaps:options.gaps||state.analysis?.gaps||[],requirementsComplete:options.requirementsComplete??state.analysis?.requirementsComplete??false};
+ const workspace=await resolveWorkspace(root);
+ const definedRequirements=Array.isArray(state.acceptanceCriteria)&&state.acceptanceCriteria.length>0
+  &&!questionsOf(state).some(q=>q.owner==='po-ba'&&q.blocking===true&&!READINESS.questionResolved.includes(q.status));
+ const input={...options,sourceMap:workspace.sources,gaps:options.gaps||state.analysis?.gaps||[],
+  requirementsComplete:options.requirementsComplete??state.analysis?.requirementsComplete??definedRequirements};
  let next=workflowNextAction({...input,state,readiness:report,implementationPlanComplete:!!state.analysis?.conditionalPlan||options.implementationPlanComplete===true});
- if(next.action==='GENERATE_CONDITIONAL_PBI'){
+ if(next.action==='RECORD_GAP'){
+  const raw=await read(root,folder+'/pbi-state.json');
+  if(canon(JSON.parse(raw))!==canon(state))throw Error('PBI changed while recording source limitations.');
+  for(const task of next.work){
+   const access=sourceAccessEntries(state).find(s=>s.source===task.application),reason=access?.reason||'No verified readable source or configured source path is available in this host.';
+   state=recordRuleVerification(state,{rule:task.rule,application:task.application,status:'UNVERIFIED_SOURCE',
+    summary:'Source verification is blocked; implementation is not established.',evidence:[],sourceFailure:reason,
+    facets:Object.fromEntries(VERIFICATION_FACETS.map(k=>[k,{status:'unavailable',reason}])),
+    verificationTask:(access?.owner||'Application/workspace owner')+': restore or configure authorized source access, trace '+task.rule+', then rerun verification.'});
+  }
+  await savePbiFiles(root,folder,{'pbi-state.json':JSON.stringify(state,null,2)+'\n'},{'pbi-state.json':raw});
+  synced=await synchronizePbi(root,folder);state=synced.state;report=synced.report;input.gaps=state.analysis.gaps;
+  next=workflowNextAction({...input,state,readiness:report,implementationPlanComplete:!!state.analysis?.conditionalPlan||options.implementationPlanComplete===true});
+ }
+ const conditionalDraft=state.analysis?.conditionalPbiGenerated===true?await read(root,folder+'/DRAFT-PBI.md'):null;
+ if(next.action==='GENERATE_CONDITIONAL_PBI'||(next.action==='REFINEMENT_COMPLETE'&&state.analysis?.conditionalPbiGenerated===true
+  &&(!conditionalPlanComplete(state.analysis.conditionalPlan)||!conditionalDraftComplete(conditionalDraft)))){
   synced=await generateConditionalPbi(root,folder,input);state=synced.state;report=synced.report;
   next=workflowNextAction({...input,state,readiness:report,implementationPlanComplete:true});
  }
@@ -2908,7 +3175,8 @@ async function advanceWorkflow(root,folder,options={}){
 // Developer handoff: business-rules.json and BRANCH-COVERAGE-MATRIX.md, derived only from pbi-state.json and the readiness report.
 const SCRIPTED=['plugin','workflow','custom-activity'];
 const UI_COMPONENTS=['javascript','web-resource','ribbon'];
-function historicalEvidence(e,pbi){return e.historical===true||(typeof e.source==='string'&&e.source.startsWith('playbook/pbis/')&&!e.source.startsWith('playbook/pbis/'+pbi+'/'))
+function foreignPbiSource(source,pbi){const m=typeof source==='string'&&/^(?:Source\/)?playbook\/pbis\/([^/]+)\//.exec(source);return !!m&&m[1]!==pbi;}
+function historicalEvidence(e,pbi){return e.historical===true||foreignPbiSource(e.source,pbi)
  ||(e.kind==='repo-file'&&typeof e.source==='string'&&READINESS.historicalPaths.some(p=>p.endsWith('/')?e.source.startsWith(p):e.source===p));}
 function branchProven(app,evidence,scripted,registration){
  const matches=e=>{
@@ -3075,7 +3343,7 @@ async function readiness(state,docs,pbi){
   // Approval fingerprints are keyed by ID, so IDs must be unique across every list.
   const seen=[];for(const n of R.lists)for(const x of L[n]){const id=obj(x)?x.id:undefined;if(!str(id))continue;if(seen.includes(id))add('DUPLICATE_ID',0,id);else seen.push(id);}
   // Files from another PBI's folder are never evidence for this one.
-  const foreign=x=>typeof x.source==='string'&&x.source.startsWith('playbook/pbis/')&&!x.source.startsWith('playbook/pbis/'+pbi+'/');
+  const foreign=x=>foreignPbiSource(x.source,pbi);
   for(const x of evidence)if(obj(x)&&foreign(x))add('FOREIGN_PBI_EVIDENCE',1,str(x.id)?x.id:pbi);
   const historical=x=>historicalEvidence(x,pbi),unverified=x=>x.verification!==undefined&&x.verification!=='VERIFIED';
   const evScope=obj(state.evidenceScope)?state.evidenceScope:{},excluded=arr(evScope.exclude).filter(x=>typeof x==='string');
@@ -3208,7 +3476,7 @@ async function readiness(state,docs,pbi){
  return {schemaVersion:2,pbi,claimedStatus:claimed,computedStatus:computed,finalAllowed:computed==='Development-Ready',issues,warnings,review,reviewedContent:docs.reviewedContent??null};
 }
 // ignoreFinal: judge the working draft only, as Approve & Generate does before it regenerates the final PBIs.
-async function checkPbi(root,folder,ignoreFinal=false){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+async function checkPbi(root,folder,ignoreFinal=false){checkPbiFolder(folder);
  const snapshot=await reviewSnapshot(root,folder),raw=snapshot.raw;let state=null;if(raw!==null){try{state=JSON.parse(raw);}catch{state=null;}}
  const reviewedContent=snapshot.fingerprint,at=f=>read(root,folder+'/'+f);
  const fin=ignoreFinal?async()=>null:at;
@@ -3217,7 +3485,7 @@ async function checkPbi(root,folder,ignoreFinal=false){safePath(folder);if(!/^pl
  return result;}
 const REVIEW_INPUTS=['pbi.json','REQUEST.md','DRAFT-PBI.md','EVIDENCE.md','OPEN-QUESTIONS.md','DECISION-LOG.md','VALIDATION-MATRIX.md'];
 async function reviewSnapshot(root,folder){
- safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+ checkPbiFolder(folder);
  const inputs={};
  for(const name of REVIEW_INPUTS){let bytes=await bytesOf(root,folder+'/'+name);if(bytes===null)continue;
   let text;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch(e){if(!(e instanceof TypeError))throw e;text=null;}
@@ -3339,7 +3607,7 @@ async function bytesOf(root,path){const f=await file(root,path);if(f===null)retu
 // Sensitive data and instruction-like text in a PBI folder. Secrets in the working documents (the sources of the
 // final PBIs and of the supporting ZIP) block Approve & Generate; attachments are reported only.
 const WORKING_DOCS=['pbi-state.json','pbi.json','REQUEST.md','DRAFT-PBI.md','EVIDENCE.md','OPEN-QUESTIONS.md','DECISION-LOG.md','VALIDATION-MATRIX.md'];
-async function contentReview(root,folder){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+async function contentReview(root,folder){checkPbiFolder(folder);
  const secrets=[],instructions=[],unscanned=[];
  for(const n of WORKING_DOCS){const t=await read(root,folder+'/'+n);if(t===null)continue;for(const f of redactSecrets(t).findings)secrets.push({path:n,...f});
   // REQUEST.md quotes the flagged lines in its own section; scan the rest.
@@ -3350,7 +3618,7 @@ async function contentReview(root,folder){safePath(folder);if(!/^playbook\/pbis\
  return {secrets,blocking:secrets.filter(s=>!s.path.startsWith('attachments/')),instructions,unscanned};}
 // Records the user's final approval bound to the reviewed content, generates the final PBIs (Markdown, DOCX, JSON),
 // verifies every file and the readiness check, and restores every touched file when any step fails.
-async function approveAndGenerate(root,folder,who,reviewedSnapshot){safePath(folder);if(!/^playbook\/pbis\/[^/]+$/.test(folder))throw Error('Select one PBI folder under playbook/pbis.');
+async function approveAndGenerate(root,folder,who,reviewedSnapshot){checkPbiFolder(folder);
  if(typeof reviewedSnapshot!=='string'||!/^[0-9a-f]{64}$/.test(reviewedSnapshot))throw Error('Review this PBI in the builder before approving it.');
  const by=line(who,120),before=await checkPbi(root,folder,true),blockers=approvalBlockers(before);
  if(before.reviewedContent!==reviewedSnapshot)throw Error('This PBI changed after review. Review it again before approving.');
@@ -3395,10 +3663,12 @@ async function hash(text){return hashBytes(enc.encode(text));}
 async function parent(root,path,create=false){const parts=safePath(path),name=parts.pop();let dir=root;for(const part of parts)dir=await dir.getDirectoryHandle(part,{create});return {dir,name};}
 async function file(root,path){try{const {dir,name}=await parent(root,path);const f=await (await dir.getFileHandle(name)).getFile();meter?.opened(path);return f;}catch(e){if(e.name==='NotFoundError'){meter?.opened(path,true);return null;}throw e;}}
 async function read(root,path){const f=await file(root,path);if(f===null)return null;const t=await f.text();meter?.consumed(f.size);return t;}
-async function write(root,path,text){const {dir,name}=await parent(root,path,true),h=await dir.getFileHandle(name,{create:true}),w=await h.createWritable();try{await w.write(text);await w.close();meter?.wrote(typeof text==='string'?enc.encode(text).length:text.byteLength??0);}catch(e){try{await w.abort();}catch{}throw e;}}
+async function write(root,path,text){const {dir,name}=await parent(root,path,true),h=await dir.getFileHandle(name,{create:true}),w=await h.createWritable();try{await w.write(text);await w.close();meter?.wrote(typeof text==='string'?enc.encode(text).length:text.byteLength??0);}catch(e){try{await w.abort();}catch{}throw e;}
+ const cached=workspaceCache.get(root);if(cached){const resolved=await cached;if(path===CONFIG||path==='Source/'+CONFIG||resolved.missing.some(p=>path.startsWith(p+'/')))workspaceCache.delete(root);}
+}
 // Skips the write when the file already holds exactly this text, so repeated runs leave unchanged files and backups alone.
 async function writeIfChanged(root,path,text){if(await read(root,path)===text){meter?.skipped();return false;}await write(root,path,text);return true;}
-async function remove(root,path){const {dir,name}=await parent(root,path);await dir.removeEntry(name);}
+async function remove(root,path){const {dir,name}=await parent(root,path);await dir.removeEntry(name);if(path===CONFIG||path==='Source/'+CONFIG)workspaceCache.delete(root);}
 // Run meter: counts what an operation actually did (file opens, bytes, repeated opens, writes, time) so runs can be compared.
 // Nothing leaves the page; the counts are returned to the caller. Model tokens and tool calls come from the host, not from here.
 let meter=null;
@@ -3494,8 +3764,34 @@ async function uninstall(root,rows){
  catch(e){const errors=[];for(const r of done){try{await write(root,r.path,r.before);}catch{errors.push(r.path);}}throw Error('Uninstall stopped: '+e.message+'\n'+(errors.length?'Could not restore: '+errors.join(', '):'Removed files were restored.'));}
  return {removed:done.map(r=>r.path),kept:rows.filter(r=>r.state==='keep').map(r=>r.path),backup:BASE+'/backups/'+batch+'/'};
 }
-async function listPbis(root){let dir;try{dir=await root.getDirectoryHandle('playbook');dir=await dir.getDirectoryHandle('pbis');}catch(e){if(e.name==='NotFoundError')return [];throw e;}
- const items=[];for await(const [name,entry]of dir.entries()){if(entry.kind!=='directory')continue;let title=name,number='',metadataWarning='';const folder='playbook/pbis/'+name;safePath(folder);const names=new Set();
+const workspaceCache=new WeakMap();
+async function resolveWorkspace(root,{refresh=false}={}){
+ if(!refresh&&workspaceCache.has(root))return workspaceCache.get(root);
+ const resolution=(async()=>{
+  const configPaths=[CONFIG,'Source/'+CONFIG],pbiRoots=[],missing=[];
+  let config=null,configPath=null;
+  for(const path of configPaths){const raw=await read(root,path);if(raw!==null){config=normalizeConfig(JSON.parse(raw));configPath=path;break;}missing.push(path);}
+  for(const path of ['playbook/pbis','Source/playbook/pbis']){
+   let dir=root;try{for(const part of path.split('/'))dir=await dir.getDirectoryHandle(part);pbiRoots.push({path,dir});}
+   catch(e){if(e.name!=='NotFoundError')throw e;missing.push(path);}
+  }
+  return {config,configPath,pbiRoots,missing,sources:config?.sources||{}};
+ })();
+ workspaceCache.set(root,resolution);
+ try{return await resolution;}catch(e){workspaceCache.delete(root);throw e;}
+}
+async function resolvePbiLocation(root,reference){
+ const items=await listPbis(root),value=String(reference).replace(/\\/g,'/').replace(/\/$/,'');
+ const exact=items.find(i=>i.folder===value);
+ const candidates=exact?[exact]:items.filter(i=>i.number===value||i.folder.split('/').pop()===value||i.title===value);
+ if(candidates.length!==1)throw Error(candidates.length?'Multiple PBI folders match; choose the explicit root-qualified folder: '+candidates.map(i=>i.folder).join(', '):'PBI not found in the resolved playbook roots: '+value);
+ const raw=await read(root,candidates[0].folder+'/pbi-state.json');
+ if(raw!==null&&JSON.parse(raw).pbi!==candidates[0].folder.split('/').pop())throw Error('Canonical PBI identity does not match the selected folder.');
+ return candidates[0];
+}
+async function listPbis(root){
+ const {pbiRoots}=await resolveWorkspace(root),items=[];
+ for(const {path:prefix,dir}of pbiRoots)for await(const [name,entry]of dir.entries()){if(entry.kind!=='directory')continue;let title=name,number='',metadataWarning='';const folder=prefix+'/'+name;safePath(folder);const names=new Set();
   for await(const [fileName,fileEntry]of entry.entries())if(fileEntry.kind==='file')names.add(fileName);
   const raw=names.has('pbi.json')?await read(root,folder+'/pbi.json'):null;if(raw){try{const m=JSON.parse(raw);if(m.kind==='comparison')continue;title=String(m.title||name);number=String(m.number||m.pbiNumber||'');}catch{metadataWarning='Unreadable intake metadata; inspect saved documents.';}}
   const present=['REQUEST.md','DRAFT-PBI.md','REFINED-PBI.md','VALIDATION-MATRIX.md','OPEN-QUESTIONS.md','DECISION-LOG.md','EVIDENCE.md','pbi-state.json'].filter(file=>names.has(file));
@@ -3614,6 +3910,6 @@ async function discoverSources(root,config){
 }
 async function readHead(root,path,limit=4096){const f=await file(root,path);if(f===null)return null;meter?.consumed(Math.min(f.size,limit));return await f.slice(0,limit).text();}
 const api={VERSION,planAnalysis,measure,writeIfChanged,gitIdentity,FILE_INDEX,BASE,CONFIG,MANIFEST,AGENT,KNOWLEDGE,LEGACY_FILES,BASELINES,READINESS,WORKFLOW_GAP_CLASSES,comparison,cleanupComparison,comparisonGuide,baselineAgent,safePath,normalizeConfig,referenceOptions,TARGETS,targetKey,APPLICATIONS,ANALYSIS_MODES,setupFiles,bundle,render,newPbi,refinePbi,attachmentPath,questionProgress,recordWorkflowChoice,completeWorkflowChoice,workflowNextAction,questionBasis,answerQuestion,skipQuestion,recordAnswer,recordSkip,recordAnswers,handoff,branchMatrix,exportHandoff,readiness,checkPbi,reviewFingerprint,approvalBlockers,finalDocuments,docx,approveAndGenerate,redactSecrets,scanInstructions,cleanAttachment,contentReview,readBytes:bytesOf,hashBytes,refreshEvidence,discoverSources,SOURCE_MAP,meaningful,hash,read,write,plan,apply,uninstallPlan,uninstall,listPbis,zip};
-Object.assign(api,{WORKING_SECTIONS,workingFiles,synchronizePbi,generateConditionalPbi,advanceWorkflow,recordWorkflowProgress});
+Object.assign(api,{WORKING_SECTIONS,workingFiles,synchronizePbi,generateConditionalPbi,advanceWorkflow,recordWorkflowProgress,RULE_CLASSIFICATIONS,VERIFICATION_FACETS,recordRuleVerification,ruleVerificationWork,verifyRule,verifyAccessibleRules,resolveWorkspace,resolvePbiLocation});
 global.PBI=api;if(typeof module!=='undefined')module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

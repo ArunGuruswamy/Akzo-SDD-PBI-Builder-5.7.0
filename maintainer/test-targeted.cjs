@@ -57,21 +57,30 @@ test('canonical mirrors repair drift, preserve intake, decisions and history, an
  const warm=await P.measure(()=>P.synchronizePbi(root,folder));assert.deepEqual(warm.result.changed,[]);assert.equal(warm.metrics.writes,0);
 });
 
-test('five external gaps present an interactive conditional choice, generate only after selection, and resume to owner action',async t=>{
+test('five external gaps automatically generate and resume a complete conditional PBI without changing decisions',async t=>{
  const {root,folder,c,gaps}=await externalFixture(t),approved=JSON.stringify(c.state.decisions);
  let run=await P.advanceWorkflow(root,folder);
- assert.equal(run.next.action,'ASK_DECISION',JSON.stringify(run.next));assert.equal(run.next.decision.recommended,'A');assert.equal(run.next.gaps.length,5);
+ assert.equal(run.next.action,'REFINEMENT_COMPLETE',JSON.stringify(run.next));assert.equal(run.next.conditional,true);assert.equal(run.next.gaps.length,5);
  assert.equal(run.report.finalAllowed,false);assert.equal(JSON.stringify(run.state.decisions),approved);
- const selected=P.recordWorkflowChoice(run.state,{option:'A',by:'User'});
- await P.write(root,folder+'/pbi-state.json',JSON.stringify(selected.state,null,2));
- run=await P.advanceWorkflow(root,folder);
- assert.equal(run.next.action,'ASK_DECISION');assert.equal(run.next.conditional,true);assert.equal(run.next.finalAllowed,false);assert.ok(run.next.decision.options[0].text.includes('authorization'));
+ assert.equal(run.state.analysis.workflowChoices,undefined);
+ assert.equal(run.next.finalAllowed,false);
  assert.equal(run.state.analysis.conditionalPlan.verificationTasks.length,5);
- assert.ok((await P.read(root,folder+'/DRAFT-PBI.md')).includes('CONDITIONAL working draft only'));
+ assert.equal(run.state.analysis.conditionalPlan.technicalDependencies.length,5);
+ assert.ok(run.state.analysis.conditionalPlan.acceptanceCriteria.length>0);
+ assert.ok(run.state.analysis.conditionalPlan.testTasks.length>0);
+ assert.ok(run.state.analysis.conditionalPlan.securityConsiderations.includes('security'));
+ const conditionalDraft=await P.read(root,folder+'/DRAFT-PBI.md');
+ assert.ok(conditionalDraft.includes('CONDITIONAL working draft only'));
+ for(const section of ['Target paths','Conditional acceptance criteria','Implementation steps','Acceptance-criteria regression tests','Unresolved technical dependencies','Reused verified behavior','Implementation readiness snapshot'])
+  assert.ok(conditionalDraft.includes('### '+section),section);
+ assert.doesNotMatch(conditionalDraft,/\[object Object\]/);
  assert.equal(JSON.stringify(run.state.decisions),approved);
  for(const name of ['PBI-CDMS.md','PBI-DAB.md','PBI-UI.md','REFINED-PBI.md'])assert.equal(await P.read(root,folder+'/'+name),null);
+ const generatedState=await P.read(root,folder+'/pbi-state.json'),generatedDraft=await P.read(root,folder+'/DRAFT-PBI.md');
  const resumed=await P.advanceWorkflow(root,folder);
- assert.equal(resumed.next.conditional,true);assert.equal(resumed.state.analysis.workflowChoices.length,1);
+ assert.equal(resumed.next.action,'REFINEMENT_COMPLETE');assert.equal(resumed.next.conditional,true);
+ assert.deepEqual(resumed.state.analysis.conditionalPlan,run.state.analysis.conditionalPlan);
+ assert.deepEqual(resumed.state.decisions,run.state.decisions);assert.equal(await P.read(root,folder+'/DRAFT-PBI.md'),generatedDraft);
  assert.ok(resumed.report.issues.some(i=>i.code==='EVIDENCE_GAP'));assert.equal(resumed.state.rules[0].gaps.length,5);
  assert.equal(resumed.state.approvals.user.status,'pending');
  assert.deepEqual(resumed.state.analysis.gaps,gaps);
@@ -81,14 +90,38 @@ test('five external gaps present an interactive conditional choice, generate onl
  assert.notEqual(changed.state.analysis.workflow.inputFingerprint,priorFingerprint);
 });
 
-test('conditional generation refuses missing requirements, unselected choices and uncovered readiness blockers',async t=>{
+test('resume the explicit same-name nested PBI folder in place and upgrade its saved conditional plan',async t=>{
+ const {dir,root,folder}=await externalFixture(t),nestedFolder=folder+'/'+shared.PBI;
+ const temporary=path.join(dir,'nested-source'),nestedPath=path.join(dir,...nestedFolder.split('/'));
+ await fs.cp(path.join(dir,...folder.split('/')),temporary,{recursive:true});
+ await fs.mkdir(nestedPath,{recursive:true});await fs.cp(temporary,nestedPath,{recursive:true});await fs.rm(temporary,{recursive:true,force:true});
+ const original=JSON.parse(await P.read(root,nestedFolder+'/pbi-state.json')),parentState=await P.read(root,folder+'/pbi-state.json'),run=await P.advanceWorkflow(root,nestedFolder);
+ assert.equal(run.next.action,'REFINEMENT_COMPLETE');assert.equal(run.next.conditional,true);
+ assert.deepEqual(run.state.decisions,original.decisions);
+ assert.equal(run.state.analysis.conditionalPlan.acceptanceCriteria.length,original.acceptanceCriteria.length);
+ assert.ok(run.state.analysis.conditionalPlan.testTasks.length>=original.acceptanceCriteria.length);
+ assert.ok(run.state.analysis.conditionalPlan.technicalDependencies.length>0);
+ assert.ok((await P.read(root,nestedFolder+'/DRAFT-PBI.md')).includes('CONDITIONAL working draft only'));
+ assert.equal(await P.read(root,folder+'/pbi-state.json'),parentState,'the canonical parent copy is not modified');
+});
+
+test('recorded per-rule gaps and object-shaped source access prevent redundant source analysis',()=>{
+ const state={pbi:'306618',sourceAccess:{dab:{status:'readable',path:'../DAB'},ui:{status:'readable',path:'../UI'}},
+  paths:{dab:{applies:true},ui:{applies:true}},
+  rules:[{id:'BR-1',rule:'Persist the approved measurement behavior.',branches:[{id:'BR-1.DEFAULT',dab:'unverified',ui:'unverified'}],
+   gaps:[{id:'G-1',status:'open',impact:'BLOCKING',description:'DAB API and shared UI implementation work is already recorded.'}]}],
+  analysis:{gaps:[{id:'EXT-1',classification:'TARGET_METADATA_UNVERIFIED',readinessRefs:['BR-1']}]}};
+ assert.deepEqual(P.ruleVerificationWork(state),[]);
+});
+
+test('conditional generation requires defined business requirements but no consent or technical evidence',async t=>{
  const {root,folder,gaps}=await externalFixture(t);
- await assert.rejects(P.generateConditionalPbi(root,folder,{gaps,requirementsComplete:true}),/not authorized/);
- let raw=JSON.parse(await P.read(root,folder+'/pbi-state.json'));
- raw=P.recordWorkflowChoice(raw,{option:'A'}).state;
- await P.write(root,folder+'/pbi-state.json',JSON.stringify(raw));
  await assert.rejects(P.generateConditionalPbi(root,folder,{gaps,requirementsComplete:false}),/not authorized/);
- await assert.rejects(P.generateConditionalPbi(root,folder,{gaps:[],requirementsComplete:true}),/not authorized/);
+ const generated=await P.generateConditionalPbi(root,folder,{gaps,requirementsComplete:true});
+ assert.equal(generated.state.analysis.conditionalPbiGenerated,true);
+ assert.equal(generated.state.approvals.user.status,'pending');
+ assert.equal(generated.report.finalAllowed,false);
+ assert.ok((await P.read(root,folder+'/DRAFT-PBI.md')).includes('Conditional implementation plan'));
 });
 
 test('persistent workflow detects unchanged automatic work, bounds history and applies custom/evidence responses once',()=>{
@@ -101,14 +134,14 @@ test('persistent workflow detects unchanged automatic work, bounds history and a
  const gap={id:'EXT-1',description:'External service',classification:'EXTERNAL_DEPENDENCY'};
  let state=P.recordWorkflowChoice({pbi:'305974'},{option:'D',custom:'Ask the service owner'}).state;
  state=P.completeWorkflowChoice(state,'WF-1');
- const next=P.workflowNextAction({state,gaps:[gap],readiness:{computedStatus:'Needs Evidence',issues:[]}});
- assert.equal(next.action,'BLOCKED_EXTERNAL');assert.ok(next.decision);
+ const next=P.workflowNextAction({state,gaps:[gap],requirementsComplete:true,readiness:{computedStatus:'Needs Evidence',issues:[]}});
+ assert.equal(next.action,'GENERATE_CONDITIONAL_PBI');assert.equal(next.gaps[0].description,'External service');
  state=P.recordWorkflowChoice({pbi:'305974'},{option:'B'}).state;state=P.completeWorkflowChoice(state,'WF-1');
  assert.equal(state.analysis.externalEvidenceRequested,true);
- assert.equal(P.workflowNextAction({state,gaps:[gap],readiness:{computedStatus:'Needs Evidence',issues:[]}}).action,'BLOCKED_EXTERNAL');
+ assert.equal(P.workflowNextAction({state,gaps:[gap],requirementsComplete:true,readiness:{computedStatus:'Needs Evidence',issues:[]}}).action,'GENERATE_CONDITIONAL_PBI');
  const conditional=P.workflowNextAction({state:{analysis:{conditionalPbiGenerated:true}},gaps:[gap],requirementsComplete:true,implementationPlanComplete:true,
   readiness:{computedStatus:'Draft',issues:[{code:'MISSING_COVERAGE',ref:'BR-1/negative'}]}});
- assert.equal(conditional.conditional,true);assert.ok(conditional.decision);assert.equal(conditional.remainingIssues[0].code,'MISSING_COVERAGE');
+ assert.equal(conditional.action,'BLOCKED_EXTERNAL');assert.deepEqual(conditional.issues.map(i=>i.code),['MISSING_COVERAGE']);
  assert.throws(()=>P.workflowNextAction({maxAutoSteps:100}),/budget/);
 });
 

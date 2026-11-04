@@ -42,6 +42,7 @@ node test-core.cjs           # 59 workflow checks on real temp files
 node test-ui.cjs             # built HTML scripts and handlers, simulated DOM (not a rendered browser)
 node --test test-521.cjs test-530.cjs   # approval, evidence policy, analysis plan, incremental discovery, metrics
 node --test test-targeted.cjs         # persistent continuation, conditional drafts, mirror/freshness parity, host profiles
+node --test test-verification.cjs     # 306618 five-rule automatic verification, root layouts, answer continuation and proof guards
 node test-e2e.cjs            # install -> discover -> decisions -> resume -> approve -> generate, real files and installer
 node benchmark-530.cjs       # 5.2.2 versus current counts and times (docs/PERFORMANCE-5.3.0.md)
 node test-ps.cjs             # Windows PowerShell: byte equivalence with core.js, installer actions
@@ -53,6 +54,33 @@ node release.cjs             # package root files + ../releases/Akzo-SDD-PBI-Bui
 `release.cjs` overwrites the root package files and the ZIP of the current version in `releases/`;
 it omits the historical `Akzo-Pbi-Builder_old/` checkout. Run it only to publish that version and
 never `require` it. Older releases stay untouched for rollback.
+
+### Interactive source verification
+
+`advanceWorkflow` prioritizes `AUTO_VERIFY` for unverified application coverage
+when the configured source is accessible. `verifyAccessibleRules(root, folder,
+investigate)` drives up to eight read-only host investigations and persists each
+result with history and concurrency checks. The host adapter receives the next
+rule/application and returns `{record, evidence}` from source it actually read;
+the generator does not pretend to understand Angular by matching component names.
+Local evidence hashes are checked before saving; existing evidence IDs cannot be
+silently replaced. Use a new ID when a source observation changes.
+
+`recordRuleVerification` validates the six supported classifications and checked
+implementation/template/service/contract/validation/test facets. Missing/partial
+behavior needs implementation and test tasks; source/runtime limits need actionable
+verification tasks. Records live only in `analysis.ruleVerifications` in the
+canonical PBI state, with external tasks in `analysis.gaps`; no SQL PBI workflow is
+created. `verifyRule` saves one finding and returns the next workflow action.
+Working draft, evidence, validation matrix, questions and decision mirrors remain
+synchronized. Browser answer submission also runs the next step automatically.
+
+`resolveWorkspace` caches configured sources and the confirmed `playbook/pbis`
+and `Source/playbook/pbis` roots, including failed probes, for the current handle.
+Configuration writes/removal and newly created roots invalidate that cache;
+explicit `{refresh:true}` handles an external layout change. `resolvePbiLocation`
+requires an explicit root-qualified choice when more than one candidate matches.
+It never merges versions or reads another PBI's decisions as evidence.
 `test-ps.cjs` removes the inherited process-scope execution policy override so the
 installer runs under the user's real policy. It never adds a bypass.
 
@@ -114,10 +142,13 @@ and resumes the next action from `analysis.workflow`. Repeated unchanged automat
 actions become interactive choices; automatic budgets are limited to eight steps
 and transition history to 32 entries. Operational progress is excluded from the
 review snapshot in both checkers; requirements, evidence and documents are not.
-`generateConditionalPbi()` requires sufficient requirements and an explicit saved
-workflow selection. It writes only a conditional draft and implementation/
-verification plan, reruns readiness, and offers the next dependency-owner action.
-It never creates final artifacts, approves decisions, or clears security blockers.
+`generateConditionalPbi()` requires defined business requirements, not a saved
+consent choice or completed technical evidence. Once genuine business questions
+are resolved, technical evidence, registration, runtime, implementation and
+external gaps are recorded as dependencies and the conditional draft, acceptance
+criteria, test plan and readiness result are synchronized automatically. It never
+waits for dependency owners, creates final artifacts, approves decisions, or
+clears security blockers.
 
 Host profiles are rendered separately from the same generator. VS Code retains
 native `vscode/askQuestions` and Custom Response. Visual Studio uses chat choices
