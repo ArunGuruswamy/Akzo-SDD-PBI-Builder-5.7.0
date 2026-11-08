@@ -1,5 +1,5 @@
-AKZO SDD PBI BUILDER 5.6.2
-Evidence-based PBI refinement | 6 November 2026
+AKZO SDD PBI BUILDER 5.7.0
+Evidence-based PBI refinement | 7 November 2026
 
 WHAT IT DOES
 Copilot Chat is the normal interface, using one agent per repository:
@@ -132,8 +132,8 @@ writing restores the files touched so far.
 
 CREATE A PBI IN COPILOT CHAT
 Open a NEW Copilot chat for every new PBI, so nothing from an earlier PBI is
-carried over. Select the builder agent and type "Start PBI" (also Create PBI,
-New PBI, Start Development or Implement PBI). The agent gathers missing intake
+carried over. Select the builder agent and type "Start PBI" (also Create PBI or
+New PBI). The agent gathers missing intake
 details, investigates accessible configured sources, asks only material business
 questions in Chat, and presents an evidence-based review. Nothing is approved by
 silence or by accepting a recommendation.
@@ -177,6 +177,20 @@ PO/BA, security, architecture or technical sign-off your
 organization requires remains a separate step outside this tool. See
 docs/USER-GUIDE.md.
 
+START DEVELOPMENT (AKZO MASTER SDD AGENT)
+Approve & Generate also writes the development handoff from the approved state:
+business-rules.json, BRANCH-COVERAGE-MATRIX.md and HANDOFF-MANIFEST.json (the
+SHA-256 of every Refined PBI and handoff file, bound to the approval). Then use
+Start Development (PBI Generated Successfully window, Continue tab, or in Chat
+"Start Development <number>"), or:
+  Install-PBIBuilder.cmd -RepoPath "C:\src\My Repo" -Action StartDevelopment -Pbi <folder>
+It verifies the handoff against the approval and prints, per implementation
+target, the command that queues its Refined PBI for the Akzo Master SDD agent.
+Run it, open the target repository, select the SDD agent and type "start". The
+commands start nothing by themselves, and the SDD agent still asks you to confirm
+the PBI and approve the implementation. A PBI that is DRAFT, CONDITIONAL or STALE
+is refused with the step that remains; refinement is never restarted.
+
 UPGRADING FROM 5.2.x
 Install or upgrade as usual and allow reviewed updates (the agent file, guides
 and optional form change; settings, repository paths, PBIs,
@@ -192,7 +206,7 @@ form cannot verify the current contents of another repository.
 
 UPGRADING FROM 4.x
 Install as above (Install.cmd, the optional form, or Upgrade ticked) and allow reviewed updates.
-The setup window and the form show "update to 5.6.2 available". Files you never
+The setup window and the form show "update to 5.7.0 available". Files you never
 edited are updated with backups. PBIs, decisions and approval history are kept; from
 5.0 only the final user approval is required, so a 4.x PBI that was waiting only
 for PO/BA or technical approval can be reviewed and approved if other checks pass. Add the shared

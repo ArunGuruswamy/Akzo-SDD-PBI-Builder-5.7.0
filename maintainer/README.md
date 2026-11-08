@@ -1,4 +1,4 @@
-# Akzo SDD PBI Builder 5.6.2 — maintainer notes
+# Akzo SDD PBI Builder 5.7.0 — maintainer notes
 
 Chat-first PBI workflow, optional offline HTML utility and Windows PowerShell
 installer. No npm dependencies. End users use the installed Copilot agent for
@@ -58,6 +58,9 @@ node --test test-541.cjs             # mandatory question gate, RecordAnswer/Def
 node --test test-chat-flow.cjs        # chat flow end to end: recommended/custom/Decide later answers, pending decision, review, PowerShell approval, refined PBIs
 node --test test-modules.cjs          # always-on agent + stage modules: nothing lost vs fixtures/baseline-v5.3.0-agents.json, routing, upgrade/uninstall
 node --test test-verification.cjs     # 306618 five-rule automatic verification, root layouts, answer continuation and proof guards
+node --test test-570.cjs             # development handoff: same-state generation (JS and PowerShell), tamper/draft/conditional refusal, rollback, pre-5.7 approvals, ZIP read back by Expand-Archive, and the Akzo Master SDD agent's own akzo.ps1 pick when its folder is found (AKZO_SDD_AGENT)
+node benchmark-570.cjs [runs]        # 5.6.2 (git) versus current: approval, handoff, package and Start Development times, counts and sizes (docs/PERFORMANCE-5.7.0.md)
+node make-golden-package.cjs         # rewrites fixtures/golden/pbi-309446-final-pbis.zip (the consumer contract fixture); run on every release, test-570 enforces it
 powershell -STA -File test-gui.ps1 -Package <package> -OldPackage <5.6.0 package> -Out <folder>   # the real setup window and folder picker (interactive desktop; moves the mouse twice, then puts it back)
 node test-e2e.cjs            # install -> discover -> decisions -> resume -> approve -> generate, real files and installer
 node benchmark-530.cjs       # 5.2.2 versus current counts and times (docs/PERFORMANCE-5.3.0.md)
@@ -72,6 +75,21 @@ node release.cjs             # package root files + ../releases/Akzo-SDD-PBI-Bui
 `release.cjs` overwrites the root package files and the ZIP of the current version in `releases/`;
 it omits the historical `Akzo-Pbi-Builder_old/` checkout. Run it only to publish that version and
 never `require` it. Older releases stay untouched for rollback.
+
+### Publishing a release (Publish-Release.ps1)
+Every version is published to the one permanent repository https://github.com/ArunGuruswamy/PBI (branch `main`) as tag
+`v<version>` with a GitHub release: v5.7.0, v5.7.1, v5.8.0, ... Never create a repository per version. Commit the source
+for the version (with its CHANGELOG section and `node make-golden-package.cjs`), then:
+```
+.\maintainer\Publish-Release.ps1 -DryRun                      # verify, run every test, build and check the artifacts; commits nothing
+$env:GITHUB_TOKEN = '<token with write access>'; .\maintainer\Publish-Release.ps1
+```
+It refuses a dirty tree, another branch, a missing CHANGELOG section, a remote `main` that HEAD does not contain (merge it
+first) and a tag already used for another commit. It runs every `test-*.cjs`, runs `release.cjs`, rechecks the ZIP and
+SHA256SUMS.txt checksums, commits `release: Akzo SDD PBI Builder v<version>` with an annotated tag, pushes without force,
+creates the GitHub release with the CHANGELOG section as notes, uploads the ZIP and its .sha256, and verifies the remote
+branch, the tag and a download of each asset. Rerun it after a failure: a tag already on HEAD resumes at the push.
+`git push` uses your git credentials; only the release API needs `GITHUB_TOKEN` (or `GH_TOKEN`).
 
 ### Interactive source verification
 
@@ -112,6 +130,20 @@ blockers, stale content or sensitive material, records approval only after those
 checks, generates and reads back the Markdown/JSON/DOCX artifacts, then rolls back
 on failure. An IDE without command execution receives the equivalent command to run.
 This keeps final generation in the existing installer and adds no runtime dependency.
+
+## Development handoff (5.7.0)
+`approveAndGenerate` / `Invoke-ApproveAndGenerate` write business-rules.json, BRANCH-COVERAGE-MATRIX.md and
+HANDOFF-MANIFEST.json after the post-generation readiness check passes, inside the same prior/written/rollback
+transaction. `handoff()` + `branchMatrix()` are ported as `Get-Handoff` + `Get-BranchMatrix`; `handoffOutputs()` as
+`Get-HandoffOutputs`; `verifyHandoff()` as `Test-Handoff`; `startDevelopment()` as `Invoke-StartDevelopment`.
+`ConvertTo-JsJson` reproduces `JSON.stringify(value, null, 2)`, so business-rules.json, the manifest and the Refined PBI JSON
+(`Get-ChatFinalDocuments`, same fields and order as `finalDocuments()`) are byte-identical between engines; only the .md and
+.docx renderings differ. Verification compares them byte for byte. The manifest is written only for DEVELOPMENT_READY and lists every package file except
+itself. A PBI approved before 5.7 gets its manifest on the first Start Development, from the still-current approval.
+`handoffDisposition()` / `Get-HandoffDisposition` derive DEVELOPMENT_READY, CONDITIONAL, DRAFT and STALE from the readiness
+report, the recorded approval and `analysis.conditionalPbiGenerated`. The consumer contract is in docs/SDD-HANDOFF-CONTRACT.md.
+Windows PowerShell 5.1 pitfall met here: `@($list)` over a `List[object]` does not compile ("Argument types do not match");
+use `.ToArray()`.
 
 ## Generation contract
 `bundle()` returns `schemaVersion: 1`, the ordered `setup` entries (rendered

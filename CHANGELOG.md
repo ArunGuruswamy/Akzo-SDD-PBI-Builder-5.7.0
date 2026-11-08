@@ -1,5 +1,53 @@
 # Changelog
 
+## 5.7.0 - 7 November 2026
+
+Development handoff and Start Development. Refinement, questions, readiness, approval semantics, the setup window and the
+installer's other actions are unchanged. No new dependency, no network call, no telemetry. Application repositories are never
+modified, and the Akzo Master SDD agent is not changed.
+
+- Approve & Generate (form and the chat `ApproveAndGenerate` action) also writes the development handoff from the approved
+  state, in the same transaction: `business-rules.json`, `BRANCH-COVERAGE-MATRIX.md` and the new `HANDOFF-MANIFEST.json`
+  (schema `akzo-pbi-handoff` 1). If any handoff file cannot be written or read back, the whole approval is rolled back.
+- HANDOFF-MANIFEST.json names the Builder version, the PBI, the approval it is bound to (by, at, the reviewed-content
+  fingerprint and the approval fingerprint), readiness, the development target, every repository with its role (implement or
+  read-only reference) and path, the Refined PBI per target, requirement / acceptance-criteria / decision / question IDs and
+  statuses, the evidence with its revision and the repository its source belongs to, the attachments, and the relative path,
+  size and SHA-256 of every Refined PBI and handoff file. It never lists or hashes itself. It is written only for an approved,
+  Development-Ready PBI.
+- Dispositions from the existing readiness check: DEVELOPMENT_READY, CONDITIONAL (`analysis.conditionalPbiGenerated`), DRAFT
+  and STALE (an approval was recorded but the content, a generated file or the handoff no longer matches it). Export developer
+  handoff reports the disposition, still writes no manifest for drafts, and leaves a file whose content is unchanged as it is
+  (so re-exporting after a Chat approval keeps the handoff valid). Moving a PBI between `playbook/pbis` and
+  `Source/playbook/pbis` keeps its handoff valid.
+- Start Development: a button in the PBI Generated Successfully window and on the Continue tab, the chat command
+  `Start Development <n>` (also `Implement PBI <n>`) and `-Action StartDevelopment -Pbi <folder> [-Json]`. It verifies the
+  handoff (hashes, every target document listed, the same approval, business-rules.json and the matrix equal to what the
+  approved state gives) and prints per implementation target the command that queues its Refined PBI for the Akzo Master SDD
+  agent: `akzo.ps1 pick -Source <PBI folder> -File Refined-PBI-<target>.md`. It runs nothing and starts no agent; the form copies
+  the commands and says that copying starts nothing. A DRAFT, CONDITIONAL or STALE PBI is refused with the step that remains.
+- Changed: `Start Development` and `Implement PBI` no longer start a new intake in the agent; `Start PBI`, `Create PBI` and
+  `New PBI` still do.
+- A PBI approved with an earlier version keeps its approval: the first Start Development creates its handoff from that still
+  current approval (documents keep their earlier names), nothing is approved again and pbi-state.json is not touched.
+- Download Complete Package — ZIP also contains the handoff files and the attachments under `attachments/`, where the Akzo
+  Master SDD agent looks for them; empty records are left out; every path is checked. Individual downloads are unchanged.
+- business-rules.json is schemaVersion 2. Added, nothing removed: the repository of every evidence record, decision text, every
+  acceptance criterion, question statuses and `technicalRevalidation` (the cited, current evidence a development agent re-checks).
+- The manifest follows the contract proposed in SDD-TWO-AGENT-AUDIT-2026-11-07: `producer`, `status`, `pbi.stateSchema`,
+  `approval.evidence`, `target` with its `implement` and `reference` repositories, and `documents[]` with `md`, `json` and
+  `docx` per area. docs/SDD-HANDOFF-CONTRACT.md describes it for the Akzo Master SDD agent.
+- Chat and the form write business-rules.json, the matrix, the manifest and every Refined PBI JSON byte for byte alike for the
+  same state (`ConvertTo-JsJson` in the installer). The chat Refined PBI JSON gains the fields the form already wrote:
+  `pbi.originalAcceptanceCriteria`, PO/BA and technical approvals, `openIssues`, evidence in citation order and branch evidence
+  without repeats; its "Risks, open issues and assumptions" section lists the same items as the form.
+- Fixed: approving a PBI without a development target (REFINED-PBI.md) in Chat failed with "The property 'Count' cannot be
+  found"; it now generates the same documents as the form, with every rule.
+- The agent no longer asks the user to open the form for business-rules.json and the matrix; Approve & Generate writes them.
+- Golden package: `maintainer/fixtures/golden/pbi-309446-final-pbis.zip`, a real Complete Package of a 309446-shaped DAB + UI
+  PBI, regenerated with `node maintainer/make-golden-package.cjs` on every release; `test-570.cjs` fails when a rename or a
+  status change would break it.
+
 ## 5.6.2 - 6 November 2026
 
 Setup window visibility. Only the setup window changed; installing, upgrading, repairing and uninstalling work as in 5.6.1.

@@ -1,4 +1,4 @@
-# Akzo SDD PBI Builder 5.6.2: user guide
+# Akzo SDD PBI Builder 5.7.0: user guide
 
 You do not need to know the templates, the code or terms such as plugins or workflows. Describe
 what you need in Copilot Chat; the agent investigates configured source and asks only for business
@@ -10,7 +10,7 @@ bar is optional and reads saved files.
 
 ## Start a PBI
 **In Copilot Chat** (recommended). Select "Akzo SDD PBI Builder - <your project>" and type
-`Start PBI` (or Create PBI, New PBI, Start Development or Implement PBI). The agent asks only for
+`Start PBI` (or Create PBI or New PBI). The agent asks only for
 missing details together, then investigates accessible configured repositories without asking
 permission to inspect files. It reports source access, verified behavior, differences and only
 material unresolved business decisions.
@@ -214,7 +214,36 @@ that handles the Yes path does not make the rule covered; a missing No path is r
 gap with its risk and a proposed approach.
 
 ## Handing over to development
-On the Continue tab, select the PBI and click **Export developer handoff**. It writes
+**Approve & Generate** also writes the development handoff in the same step, from the approved state:
+`business-rules.json`, `BRANCH-COVERAGE-MATRIX.md` and `HANDOFF-MANIFEST.json`. The manifest names the
+PBI, the approval it belongs to (who, when and the reviewed-content fingerprint), the implementation
+targets and read-only reference repositories, the requirement, acceptance-criteria, decision and
+question IDs, the evidence with the repository each source came from, and the SHA-256 of every Refined
+PBI and handoff file. It does not list or hash itself. If any file cannot be written, nothing is
+approved and the earlier files are restored. **Download Complete Package — ZIP** contains the same
+files, the attachments under `attachments/` and the working records under `supporting/`.
+
+**Start Development** (in the PBI Generated Successfully window, on the Continue tab, or in Chat:
+`Start Development <number>`) checks that the handoff still matches the approval: every listed file
+unchanged, every Refined PBI of the target listed, the same approval, and business-rules.json and the
+matrix still what the approved state gives. It then shows, for each implementation target, the command
+that queues that Refined PBI for the Akzo Master SDD agent, for example:
+
+    & "$env:USERPROFILE\.akzo-agent\modules\investigate\scripts\akzo.ps1" pick -Source 'C:\src\My Repo\playbook\pbis\<folder>' -File 'Refined-PBI-DAB.md'
+
+Run one command per target, open the target repository, select the Akzo Master SDD agent in Copilot
+Chat and type `start`. The commands only queue the PBI: nothing starts by itself, and the SDD agent
+still asks you to confirm the PBI and approve the implementation. The form copies the commands to the
+clipboard; copying starts nothing either. Fill in **Full project path** in setup to get absolute paths;
+otherwise run them from the repository root.
+
+Start Development never restarts refinement and never re-asks answered questions. When the PBI is not
+ready it names its state and changes nothing: **DRAFT** (refinement not finished), **CONDITIONAL** (a
+conditional draft with open dependencies) or **STALE** (approved content, or a generated file, changed
+after approval: review and approve again). A PBI approved with an earlier version gets its handoff from
+that approval the first time you use Start Development; nothing is approved again.
+
+**Export developer handoff** remains for working drafts: on the Continue tab, select the PBI and click it. It writes
 `business-rules.json` (for the development agent) and `BRANCH-COVERAGE-MATRIX.md` from the PBI's
 recorded state, and keeps earlier exports in `history/`. The file separates approved
 requirements, proposed requirements and technical findings, and lists every open gap.

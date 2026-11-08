@@ -1,7 +1,7 @@
-/* Akzo SDD PBI Builder 5.6.0. Offline; no dependencies or network calls. */
+/* Akzo SDD PBI Builder 5.7.0. Offline; no dependencies or network calls. */
 (function (global) {
 'use strict';
-const VERSION='5.6.2', BASE='playbook/pbi-builder', CONFIG=BASE+'/config.json', MANIFEST=BASE+'/installed-files.json';
+const VERSION='5.7.0', BASE='playbook/pbi-builder', CONFIG=BASE+'/config.json', MANIFEST=BASE+'/installed-files.json';
 const AGENT='.github/agents/akzo-sdd-pbi-builder.agent.md', AGENT_VSCODE='.github/agents/akzo-sdd-pbi-builder-vscode.agent.md', AGENT_PREFIX='Akzo SDD PBI Builder - ';
 const KNOWLEDGE=BASE+'/knowledge/evidence-index.json';
 // A workspace Agent Skill: Visual Studio 18.5+ and VS Code discover .github/skills/<name>/SKILL.md themselves.
@@ -158,7 +158,7 @@ first PBI document write of a conversation.
   pbi-state.json or changing a status. Read stage-evidence.md before recording
   evidence or gaps. Done when every material branch has verified
   coverage or a graded gap.
-- Approval and generation (status, readiness, the final approval):
+- Approval and generation (status, readiness, the final approval, Start Development):
   readiness-and-approval.md. Read stage-approval.md before the review. Done when one final user approval is bound to the
   reviewed content and the final Markdown, JSON and DOCX exist. Keep review and
   approval in Copilot Chat; the HTML form is an optional alternative.
@@ -232,9 +232,10 @@ revision or missing file invalidates the entry; reread only those. Never reuse a
 answer, decision, assumption or conclusion from another PBI.
 
 ## Commands
-Start PBI (also Create PBI, New PBI, Start Development, Implement PBI, Create
-User Story, Refine New Requirement): all start the same intake below; Start
-Development and Implement PBI prepare the PBI and never change application code.
+Start PBI (also Create PBI, New PBI, Create User Story, Refine New Requirement):
+all start the same intake below. Start Development <n> and Implement PBI <n> hand
+an approved PBI to the Akzo Master SDD agent (stage-approval.md), never start a
+new intake and never change application code.
 Resume PBI <n>; Continue PBI <n>; Refine PBI <n>: <change>; Review PBI <n>;
 Edit PBI <n>; Show Decisions <n>; Analyze Legacy <n>; Show Technical Flow <n>;
 Extract Plugin Rules <n> [plugin, entity or operation];
@@ -943,6 +944,22 @@ and JSON), reruns the check and verifies every file. If any step fails, it
 restores earlier files and reports the failure. Request Changes and Save Draft
 remain available as chat replies.
 
+## Start Development
+In the same run, Approve & Generate writes the development handoff from the
+approved state: business-rules.json, BRANCH-COVERAGE-MATRIX.md and
+HANDOFF-MANIFEST.json (the SHA-256 of every Refined PBI and handoff file, bound
+to the approval). Start Development <n> and Implement PBI <n> hand that PBI to
+the Akzo Master SDD agent: run Install-PBIBuilder.ps1 -RepoPath
+<repository-root> -Action StartDevelopment -Pbi <folder>. It verifies the files
+against the approval and prints one import command per implementation target.
+Give the user those commands and the next step it prints. Do not run them
+yourself (they write outside this repository), and never say the SDD agent was
+started: it still asks the developer to select the PBI and approve the
+implementation. When it reports STALE, CONDITIONAL or DRAFT, say so and continue
+that PBI at its current stage; never start a new intake, re-ask an answered
+question or approve on the user's behalf. Without a PBI, ask which approved PBI
+to hand off.
+
 ## Consolidated approval summary
 The Copilot Chat review summary (also shown in the optional HTML form) includes:
 PBI number and title; requirements and acceptance criteria with completion
@@ -986,7 +1003,8 @@ LEGACY-BUSINESS-RULE-CATALOG.md, SHARED-BUSINESS-RULES.md,
 BUSINESS-RULE-OWNERSHIP.md and ACCEPTANCE-CRITERIA.md (when the user asks for
 them), and BRANCH-COVERAGE-MATRIX.md and business-rules.json (written by the
 form's Export developer handoff button from pbi-state.json; never edit them by
-hand). Never write a separate end-to-end or technical analysis report: verified
+hand). Approve & Generate writes them too, with HANDOFF-MANIFEST.json; never edit
+that either. Never write a separate end-to-end or technical analysis report: verified
 findings belong in VALIDATION-MATRIX.md and EVIDENCE.md.
 Keep DRAFT-PBI.md readable for business reviewers, with these apart: confirmed
 requirements, existing functionality, confirmed gaps, proposed changes,
@@ -1984,9 +2002,10 @@ unchanged. For DAB both Yes and No are required behavior in DAB code, subject
 to what DAB already implements.
 
 ## Gap analysis output
-BRANCH-COVERAGE-MATRIX.md and business-rules.json are produced by the form's
-Export developer handoff button from pbi-state.json; ask the user to run it
-after the state is updated. They list per branch: rule, branch, expected
+Approve & Generate writes BRANCH-COVERAGE-MATRIX.md and business-rules.json,
+with HANDOFF-MANIFEST.json, from the approved pbi-state.json, in Chat and in the
+form; never ask the user to open the form for them. For a working draft the
+form's Export developer handoff button writes the first two. They list per branch: rule, branch, expected
 behavior, evidence, coverage per application (a plugin branch without shown
 activation is reported as unverified), missing functionality, risk, proposed
 approach, acceptance criteria, and whether it is an approved requirement, a
@@ -3354,11 +3373,23 @@ function branchProven(app,evidence,scripted,registration){
  };
  return evidence.some(matches)&&!(app==='cdms'&&scripted&&registration!=='active');
 }
-function handoff(state,report){
- const o=x=>x&&typeof x==='object'&&!Array.isArray(x),a=x=>Array.isArray(x)?x:[],s=o(state)?state:{};
+// The repositories of an intake (pbi.json) with their roles; a 4.x intake recorded only the target, extra references are read-only.
+function handoffRepositories(request){
+ const arr=x=>Array.isArray(x)?x.filter(y=>y&&typeof y==='object'):[],app=targetKey(request?.application),T=app&&app!=='unsure'?TARGETS[app]:null;
+ let repos=arr(request?.repositories).map(r=>({key:r.key??null,area:r.area??null,use:r.use??null,path:r.path??null}));
+ if(!repos.length&&T)repos=[...T.reference.map(k=>({key:k,use:'reference'})),...T.implement.map(k=>({key:k,use:'implement'}))].map(r=>({key:r.key,area:AREAS[r.key],use:r.use,path:null}));
+ for(const k of Array.isArray(request?.references)?request.references:[])if(typeof k==='string'&&!repos.some(r=>r.key===k))repos.push({key:k,area:AREAS[k]??k,use:'reference',path:null});
+ return repos;}
+// An evidence source belongs to the repository whose configured folder is its longest prefix ('.' is this repository).
+function repositoryOf(repos,src){let best=null,len=-1;if(typeof src!=='string')return null;
+ for(const r of repos){if(typeof r.path!=='string'||!r.path)continue;const p=r.path.replace(/^\.(\/|$)/,'').replace(/\/+$/,'');if((!p||src===p||src.startsWith(p+'/'))&&p.length>len){best=r.key;len=p.length;}}
+ return best;}
+// request (pbi.json) is optional: it names the repository each evidence source belongs to.
+function handoff(state,report,request){
+ const o=x=>x&&typeof x==='object'&&!Array.isArray(x),a=x=>Array.isArray(x)?x:[],s=o(state)?state:{},repos=handoffRepositories(request);
  const paths=o(s.paths)?s.paths:{},apps=['cdms','dab','ui'].filter(k=>o(paths[k])&&paths[k].applies===true);
  const decisions=a(s.decisions).filter(o),approved=id=>decisions.some(d=>d.id===id&&d.status==='approved');
- const evidence=a(s.evidence).filter(o),ev=ids=>[...new Set(a(ids))].map(id=>evidence.find(e=>e.id===id)).filter(Boolean).map(e=>({id:e.id,level:e.level,system:e.system??null,component:e.component??null,source:e.source,location:e.location,summary:e.summary,revision:e.revision??null,verification:e.verification??'VERIFIED'}));
+ const evidence=a(s.evidence).filter(o),ev=ids=>[...new Set(a(ids))].map(id=>evidence.find(e=>e.id===id)).filter(Boolean).map(e=>({id:e.id,level:e.level,system:e.system??null,component:e.component??null,source:e.source,location:e.location,summary:e.summary,revision:e.revision??null,verification:e.verification??'VERIFIED',repository:repositoryOf(repos,e.source)}));
  const excluded=a(s.evidenceScope?.exclude),invalid=new Set(a(report?.issues).filter(i=>['EVIDENCE_INCOMPLETE','EVIDENCE_STALE','EVIDENCE_SOURCE_MISSING','EVIDENCE_CHANGED','FOREIGN_PBI_EVIDENCE'].includes(i.code)).map(i=>i.ref));
  const acs=a(s.acceptanceCriteria).filter(o),gaps=[];
  const rules=a(s.rules).filter(o).map(r=>{
@@ -3376,10 +3407,16 @@ function handoff(state,report){
    cdms:apps.includes('cdms')?{owner:r.owner??null,registration:r.registration??null,runtime:r.runtime??null,targetAction:r.targetAction??null,path:o(r.paths)?r.paths.cdms??null:null}:null,
    dab:apps.includes('dab')?{...(o(r.dab)?r.dab:{}),path:o(r.paths)?r.paths.dab??null:null}:null,
    evidence:ev(r.evidence),branches,acceptanceCriteria:acs.filter(x=>a(x.rules).includes(r.id)).map(x=>({id:x.id,type:x.type,criterion:x.criterion}))};});
- return {schemaVersion:1,pbi:s.pbi??null,generatedFrom:'pbi-state.json',applications:apps,
+ // Schema 2 adds (nothing removed): decision text, every acceptance criterion, question statuses, each evidence record's repository,
+ // and the cited, current evidence a development agent re-checks against today's code instead of re-investigating.
+ const cited=new Set(a(s.rules).filter(o).flatMap(r=>[...a(r.evidence),...Object.values(o(r.paths)?r.paths:{}).flatMap(p=>o(p)?a(p.evidence):[]),...a(r.branches).filter(o).flatMap(b=>a(b.evidence))]));
+ return {schemaVersion:2,pbi:s.pbi??null,generatedFrom:'pbi-state.json',applications:apps,
   readiness:report?{computedStatus:report.computedStatus,finalAllowed:report.finalAllowed,issues:report.issues.map(i=>i.code+' '+i.ref),warnings:(report.warnings||[]).map(i=>i.code+' '+i.ref)}:null,
   sourceAccess:a(s.sourceAccess).filter(o),dependencies:a(s.dependencies).filter(o),
-  rules,decisions:decisions.map(d=>({id:d.id,status:d.status,evidence:d.evidence??null,supersedes:d.supersedes||null})),gaps};
+  rules,decisions:decisions.map(d=>({id:d.id,status:d.status,evidence:d.evidence??null,supersedes:d.supersedes||null,decision:d.decision??null})),gaps,
+  acceptanceCriteria:acs.map(x=>({id:x.id,rev:x.rev??null,type:x.type??null,rules:a(x.rules),criterion:x.criterion??null})),
+  questions:a(s.questions).filter(o).map(q=>({id:q.id,status:q.status??null,blocking:q.blocking===true,decisionRef:q.decisionRef??null})),
+  technicalRevalidation:evidence.filter(e=>cited.has(e.id)&&!historicalEvidence(e,s.pbi)).map(e=>e.id)};
 }
 function branchMatrix(h){
  const cell=x=>String(x??'').replace(/\|/g,'\\|').replace(/\s*\n\s*/g,' ');
@@ -3392,11 +3429,105 @@ function branchMatrix(h){
 async function exportHandoff(root,folder){
  const report=await checkPbi(root,folder),raw=await read(root,folder+'/pbi-state.json');
  if(raw===null)throw Error('This PBI has no pbi-state.json yet. Ask the agent to start the analysis first.');
- const h=handoff(JSON.parse(raw),report),files={[folder+'/business-rules.json']:JSON.stringify(h,null,2)+'\n',[folder+'/BRANCH-COVERAGE-MATRIX.md']:branchMatrix(h)},st=stamp()+'-'+uid();
- // Keep earlier exports in history/ so a developer's copy is never lost.
- for(const [p,t] of Object.entries(files)){const old=await read(root,p);if(old!==null&&old!==t)await write(root,folder+'/history/'+p.split('/').pop().replace(/(\.[a-z]+)$/,'.'+st+'$1'),old);await write(root,p,t);}
- return {handoff:h,report,files:Object.keys(files)};
+ let request={};try{request=JSON.parse(await read(root,folder+'/pbi.json')??'{}')||{};}catch{}
+ const state=JSON.parse(raw),h=handoff(state,report,request),files={[folder+'/business-rules.json']:JSON.stringify(h,null,2)+'\n',[folder+'/BRANCH-COVERAGE-MATRIX.md']:branchMatrix(h)},st=stamp()+'-'+uid();
+ // Keep earlier exports in history/ so a developer's copy is never lost; an unchanged file is left as it is.
+ for(const [p,t] of Object.entries(files)){const old=await read(root,p);if(old===t){meter?.skipped();continue;}if(old!==null)await write(root,folder+'/history/'+p.split('/').pop().replace(/(\.[a-z]+)$/,'.'+st+'$1'),old);await write(root,p,t);}
+ const docs=await presentFinalDocs(root,folder,state,request);
+ return {handoff:h,report,files:Object.keys(files),disposition:handoffDisposition(state,report,docs.length>0&&docs.every(d=>d.present))};
 }
+
+// ---- Development handoff for the Akzo Master SDD agent: HANDOFF-MANIFEST.json beside business-rules.json and the matrix ----
+// Install-PBIBuilder.ps1 (Get-HandoffOutputs, Test-Handoff) implements the same contract; test-570.cjs proves they agree.
+const HANDOFF={rules:'business-rules.json',matrix:'BRANCH-COVERAGE-MATRIX.md',manifest:'HANDOFF-MANIFEST.json',schema:'akzo-pbi-handoff',schemaVersion:1};
+// Manifest fields verification re-derives; the producer version and the integrity wording may differ between Builder versions.
+const HANDOFF_BOUND=['status','pbi','approval','target','repositories','documents','requirements','acceptanceCriteria','decisions','questions','evidence','files','attachments'];
+// The Builder's readiness is the only basis: DEVELOPMENT_READY needs the passing check and every final file.
+function handoffDisposition(state,report,artifacts){
+ if(report?.computedStatus==='Development-Ready'&&report.finalAllowed===true&&!report.issues.length&&artifacts)return 'DEVELOPMENT_READY';
+ if(state?.approvals?.user?.status==='approved')return 'STALE';
+ return state?.analysis?.conditionalPbiGenerated===true?'CONDITIONAL':'DRAFT';}
+async function attachmentNames(root,folder){let dir=null;
+ try{const p=await parent(root,folder+'/attachments');dir=await p.dir.getDirectoryHandle(p.name);}catch(e){if(e.name!=='NotFoundError'&&e.name!=='TypeMismatchError')throw e;}
+ const names=[];if(dir)for await(const [n,x] of dir.entries())if(x.kind==='file')names.push(n);return names.sort();}
+// docFiles: the Refined PBI files ({path, role, target, bytes, sha256}) as written. The manifest lists every package file but
+// itself, so it cannot vouch for itself; it is written only for the approved state (DEVELOPMENT_READY).
+async function handoffOutputs(root,folder,state,request,report,docFiles){
+ if(handoffDisposition(state,report,true)!=='DEVELOPMENT_READY')throw Error('The development handoff needs the approved, Development-Ready PBI.');
+ const h=handoff(state,report,request),rules=JSON.stringify(h,null,2)+'\n',matrix=branchMatrix(h),arr=x=>Array.isArray(x)?x.filter(y=>y&&typeof y==='object'):[];
+ const app=targetKey(request.application),T=app&&app!=='unsure'?TARGETS[app]:null,a=state.approvals.user,repos=handoffRepositories(request),use=u=>repos.filter(r=>r.use===u).map(r=>r.key);
+ const entry=async(path,role,t)=>{const b=enc.encode(t);return {path,role,target:null,bytes:b.length,sha256:await hashBytes(b)};},attachments=[];
+ for(const n of await attachmentNames(root,folder)){const b=await bytesOf(root,folder+'/attachments/'+n);attachments.push({path:'attachments/'+n,bytes:b.length,sha256:await hashBytes(b)});}
+ const manifest={schema:HANDOFF.schema,schemaVersion:HANDOFF.schemaVersion,producer:{name:'Akzo SDD PBI Builder',version:VERSION},disposition:'DEVELOPMENT_READY',status:state.status??null,
+  pbi:{id:state.pbi??null,number:request.number||null,title:request.title||null,folder,stateSchema:state.schemaVersion??null},
+  approval:{by:a.by,at:a.at,evidence:a.evidence??null,reviewedContent:a.basis?.reviewedContent??null,fingerprint:report.review?.user?.fingerprint??null},
+  readiness:h.readiness,target:T?{key:app,label:T.label,implement:use('implement'),reference:use('reference')}:null,repositories:repos,
+  documents:docFiles.filter(f=>f.path.endsWith('.md')).map(f=>{const base=f.path.slice(0,-3);return {area:f.target,md:f.path,json:base+'.json',docx:base+'.docx',repository:repos.find(r=>r.key===f.target)?.path??null};}),
+  requirements:h.rules.map(r=>({id:r.id,rev:r.rev??null,kind:r.kind})),acceptanceCriteria:h.acceptanceCriteria.map(x=>x.id),
+  decisions:h.decisions.map(d=>({id:d.id,status:d.status})),questions:h.questions,
+  evidence:arr(state.evidence).map(e=>({id:e.id,repository:repositoryOf(repos,e.source),system:e.system??null,level:e.level??null,kind:e.kind??null,source:e.source??null,location:e.location??null,revision:e.revision??null,sha256:e.sha256??null,verification:e.verification??'VERIFIED'})),
+  files:[...docFiles,await entry(HANDOFF.rules,'business-rules',rules),await entry(HANDOFF.matrix,'branch-coverage-matrix',matrix)],attachments,
+  integrity:'Lists every package file except this manifest with its SHA-256; the manifest does not hash itself. A matching hash shows a file is unchanged since generation, not who produced it.'};
+ return {manifest,files:{[HANDOFF.rules]:rules,[HANDOFF.matrix]:matrix,[HANDOFF.manifest]:JSON.stringify(manifest,null,2)+'\n'}};}
+// Current disposition of the PBI and whether its handoff still matches the approval: listed files unchanged, every final
+// document listed, bound to the recorded approval, and business-rules.json and the matrix equal to what the approved state gives.
+async function verifyHandoff(root,folder){checkPbiFolder(folder);
+ const raw=await read(root,folder+'/pbi-state.json');if(raw===null)throw Error('This PBI has no pbi-state.json yet. Ask the agent to start the analysis first.');
+ const state=JSON.parse(raw);let request={};try{request=JSON.parse(await read(root,folder+'/pbi.json')??'{}')||{};}catch{}
+ const report=await checkPbi(root,folder),docs=await presentFinalDocs(root,folder,state,request),problems=[];
+ let disposition=handoffDisposition(state,report,docs.length>0&&docs.every(d=>d.present)),manifest=null;
+ const text=await read(root,folder+'/'+HANDOFF.manifest);
+ if(text===null)problems.push('HANDOFF_MISSING');
+ else{try{manifest=JSON.parse(text);}catch{problems.push('HANDOFF_INVALID');}}
+ if(manifest&&(manifest.schema!==HANDOFF.schema||manifest.schemaVersion!==HANDOFF.schemaVersion||manifest.disposition!=='DEVELOPMENT_READY'||!Array.isArray(manifest.files))){problems.push('HANDOFF_INVALID');manifest=null;}
+ if(manifest){const listed=manifest.files.filter(f=>f&&typeof f==='object');
+  for(const f of listed){if(!isSafe(f.path)||f.path===HANDOFF.manifest||f.path.startsWith('history/')){problems.push('HANDOFF_PATH_UNSAFE '+f.path);continue;}
+   const b=await bytesOf(root,folder+'/'+f.path);if(b===null)problems.push('HANDOFF_FILE_MISSING '+f.path);else if(await hashBytes(b)!==f.sha256)problems.push('HANDOFF_FILE_CHANGED '+f.path);}
+  for(const n of [...docs.flatMap(d=>d.present?['.md','.json','.docx'].map(x=>d.present.replace(/\.md$/,x)):[]),HANDOFF.rules,HANDOFF.matrix])if(!listed.some(f=>f.path===n))problems.push('HANDOFF_FILE_NOT_LISTED '+n);
+  const a=state.approvals?.user,m=manifest.approval;
+  if(a?.status!=='approved'||!m||m.by!==a.by||m.at!==a.at||m.reviewedContent!==(a.basis?.reviewedContent??null)||manifest.pbi?.id!==state.pbi)problems.push('HANDOFF_APPROVAL_MISMATCH');
+  // Byte for byte: PowerShell writes the same text (ConvertTo-JsJson).
+  if(disposition==='DEVELOPMENT_READY'){const h=handoff(state,report,request);
+   if(await read(root,folder+'/'+HANDOFF.rules)!==JSON.stringify(h,null,2)+'\n')problems.push('HANDOFF_CONTENT_CHANGED '+HANDOFF.rules);
+   if(await read(root,folder+'/'+HANDOFF.matrix)!==branchMatrix(h))problems.push('HANDOFF_CONTENT_CHANGED '+HANDOFF.matrix);
+   // Every other bound field is what the approved state gives (documents drive the import command). Listed files keep their
+   // recorded hash here: a changed file is already reported above.
+   const docFiles=[];for(const d of docs)for(const ext of ['.md','.json','.docx']){const n=d.present.replace(/\.md$/,ext),rec=listed.find(f=>f.path===n);let x=rec?{bytes:rec.bytes,sha256:rec.sha256}:null;
+    if(!x){const b=await bytesOf(root,folder+'/'+n);x={bytes:b.length,sha256:await hashBytes(b)};}docFiles.push({path:n,role:'refined-pbi',target:d.target,...x});}
+   // pbi.folder is informational: moving the PBI between playbook/pbis and Source/playbook/pbis changes no approved content.
+   const bound=m=>canon(Object.fromEntries(HANDOFF_BOUND.map(k=>[k,k==='pbi'?{...(m.pbi&&typeof m.pbi==='object'?m.pbi:{}),folder:null}:m[k]??null])));
+   if(bound(JSON.parse(JSON.stringify((await handoffOutputs(root,folder,state,request,report,docFiles)).manifest)))!==bound(manifest))problems.push('HANDOFF_MANIFEST_CHANGED');}}
+ if(disposition==='DEVELOPMENT_READY'&&problems.some(p=>p!=='HANDOFF_MISSING'))disposition='STALE';
+ return {folder,disposition,valid:disposition==='DEVELOPMENT_READY'&&!problems.length,problems,manifest,state,request,report};}
+const NEXT_STEP={STALE:'The approved content or its generated files changed after approval: review the PBI again (Review & approve) to regenerate them.',
+ CONDITIONAL:'This is a conditional draft: resolve its dependencies, then Review & approve.',DRAFT:'Finish the refinement, then Review & approve.',DEVELOPMENT_READY:'Review & approve the PBI again to regenerate its handoff.'};
+// Start Development: the verified handoff and, per implementation target, the command that queues its Refined PBI for the Akzo Master
+// SDD agent (akzo.ps1 pick with -File, which names the document; it also works with SDD 4.2.5, which predates the Refined-PBI names).
+// Nothing here starts an agent. A PBI approved before 5.7 gets its handoff from its still-current approval, never a new approval.
+async function startDevelopment(root,folder,repoPath=''){
+ let v=await verifyHandoff(root,folder),adopted=false;
+ if(!v.valid&&v.disposition==='DEVELOPMENT_READY'&&v.problems.length===1&&v.problems[0]==='HANDOFF_MISSING'){
+  const docFiles=[];for(const d of await presentFinalDocs(root,folder,v.state,v.request))for(const ext of ['.md','.json','.docx']){const n=d.present.replace(/\.md$/,ext),b=await bytesOf(root,folder+'/'+n);docFiles.push({path:n,role:'refined-pbi',target:d.target,bytes:b.length,sha256:await hashBytes(b)});}
+  const out=(await handoffOutputs(root,folder,v.state,v.request,v.report,docFiles)).files,prior={},st=stamp()+'-'+uid(),wrote=[];
+  for(const n of Object.keys(out))prior[n]=await bytesOf(root,folder+'/'+n);
+  // Earlier exports go to history/ as Export developer handoff keeps them; a failed write restores them.
+  try{for(const [n,t] of Object.entries(out)){if(prior[n]!==null&&!equalBytes(prior[n],enc.encode(t)))await write(root,folder+'/history/'+n.replace(/(\.[a-z]+)$/i,'.'+st+'$1'),prior[n]);wrote.push(n);await write(root,folder+'/'+n,t);}}
+  catch(e){for(const n of wrote){try{if(prior[n]!==null)await write(root,folder+'/'+n,prior[n]);else await remove(root,folder+'/'+n);}catch{}}throw e;}
+  adopted=true;v=await verifyHandoff(root,folder);}
+ if(!v.valid)throw Error('Start Development needs an approved PBI whose handoff matches its approval. '+folder+' is '+v.disposition+(v.problems.length?' ('+v.problems.join('; ')+')':'')+'. Nothing was changed and nothing was started. '+NEXT_STEP[v.disposition]);
+ const m=v.manifest,q=s=>"'"+String(s).replace(/'/g,"''")+"'",source=(repoPath?repoPath.replace(/[\\/]+$/,''):'.')+'\\'+folder.replace(/\//g,'\\');
+ const area=k=>m.repositories.find(r=>r.key===k)?.area??(k?AREAS[k]??k:'Refined PBI');
+ return {folder,disposition:v.disposition,adopted,manifest:m,source,
+  targets:m.documents.map(d=>({document:d.md,target:d.area,repository:d.repository,area:area(d.area),command:'& "$env:USERPROFILE\\.akzo-agent\\modules\\investigate\\scripts\\akzo.ps1" pick -Source '+q(source)+' -File '+q(d.md)})),
+  references:m.repositories.filter(r=>r.use==='reference')};}
+// Download Complete Package: generated files at the root (each read back and checked against its recorded hash), attachments/ as in the
+// PBI folder (where the SDD agent looks for them) and the working records under supporting/. Empty files are left out.
+async function developmentPackage(root,folder,files){const out={};
+ for(const x of files){const b=await bytesOf(root,x.path);if(b===null||await hashBytes(b)!==x.sha256)throw Error(x.name+' is missing or changed since it was generated. Generate again from Review & approve.');out[x.name]=b;}
+ for(const n of await attachmentNames(root,folder)){const b=await bytesOf(root,folder+'/attachments/'+n);if(b?.length)out['attachments/'+n]=cleanAttachment(n,b).bytes;}
+ for(const n of ['REQUEST.md','pbi.json','pbi-state.json','DRAFT-PBI.md','DECISION-LOG.md','EVIDENCE.md','VALIDATION-MATRIX.md','OPEN-QUESTIONS.md']){const b=await bytesOf(root,folder+'/'+n);if(b?.length)out['supporting/'+n]=cleanAttachment(n,b).bytes;}
+ for(const p of Object.keys(out))safePath(p);
+ return out;}
 
 // Readiness rules. Install-PBIBuilder.ps1 implements the same checks; test-ps.cjs proves equivalence.
 const READINESS={
@@ -3708,11 +3839,14 @@ function approvalBlockers(result){return result.issues.filter(i=>!finalApprovalO
 // A deliverable whose path the requirement excludes (for example no UI change) is not produced.
 function finalDocumentNames(request,state){const target=targetKey(request?.application),app=target&&target!=='unsure'?target:null;return app?TARGETS[app].documents.filter(n=>state.paths?.[DOC_KEY[n]]?.applies===true):['REFINED-PBI.md'];}
 async function finalArtifacts(root,folder,state){let request={};try{request=JSON.parse(await read(root,folder+'/pbi.json')??'{}')||{};}catch{}
- const names=finalDocumentNames(request,state);if(!names.length)return false;
- for(const name of names){let found=false;
-  for(const n of [name,...(LEGACY_FINAL[name]||[])]){let all=true;for(const ext of ['.md','.json','.docx'])if(await file(root,folder+'/'+n.replace(/\.md$/,ext))===null){all=false;break;}if(all){found=true;break;}}
-  if(!found)return false;}
- return true;}
+ const docs=await presentFinalDocs(root,folder,state,request);return docs.length>0&&docs.every(d=>d.present);}
+// Each final document of the target with the name it is present under (current or earlier, all of .md/.json/.docx), else null.
+async function presentFinalDocs(root,folder,state,request){const out=[];
+ for(const name of finalDocumentNames(request,state)){let present=null;
+  for(const n of [name,...(LEGACY_FINAL[name]||[])]){let all=true;for(const ext of ['.md','.json','.docx'])if(await file(root,folder+'/'+n.replace(/\.md$/,ext))===null){all=false;break;}if(all){present=n;break;}}
+  out.push({name,present,target:DOC_KEY[name]??null});
+  if(!present)break;}
+ return out;}
 function finalDocuments(request,state,folder){
  const target=targetKey(request?.application),app=target&&target!=='unsure'?target:null,applies=k=>state.paths?.[k]?.applies===true;
  const names=finalDocumentNames(request,state);
@@ -3826,12 +3960,14 @@ async function approveAndGenerate(root,folder,who,reviewedSnapshot){checkPbiFold
  if(await reviewFingerprint(root,folder)!==reviewedSnapshot)throw Error('This PBI changed after review. Review it again before approving.');
  // Final documents of an earlier run or target that this run does not produce move to history/.
  const retire=[];for(const n of FINAL_NAMES)if(!(n in out)&&await file(root,folder+'/'+n)!==null)retire.push(n);
+ const handoffNames=[HANDOFF.rules,HANDOFF.matrix,HANDOFF.manifest];
  const touched=[...Object.keys(out),...retire],prior={},stampv=stamp(),written=[];
- for(const n of touched)prior[n]=await bytesOf(root,folder+'/'+n);
+ for(const n of [...touched,...handoffNames])prior[n]=await bytesOf(root,folder+'/'+n);
  // A regenerated document that is byte-identical to the current one is left alone: no rewrite and no duplicate history copy.
- const unchanged=n=>n in out&&prior[n]!==null&&equalBytes(prior[n],typeof out[n]==='string'?enc.encode(out[n]):out[n]);
+ const same=(n,v)=>prior[n]!==null&&equalBytes(prior[n],typeof v==='string'?enc.encode(v):v),unchanged=n=>n in out&&same(n,out[n]);
+ const backup=n=>write(root,folder+'/history/'+n.replace(/(\.[^.]+)$/,'.'+stampv+'$1'),prior[n]);
  try{
-  for(const n of touched)if(prior[n]!==null&&!unchanged(n))await write(root,folder+'/history/'+n.replace(/(\.[^.]+)$/,'.'+stampv+'$1'),prior[n]);
+  for(const n of touched)if(prior[n]!==null&&!unchanged(n))await backup(n);
   for(const [n,v] of Object.entries(out)){if(unchanged(n)){meter?.skipped();continue;}written.push(n);await write(root,folder+'/'+n,v);}
   for(const n of retire){written.push(n);await remove(root,folder+'/'+n);}
   const files=[];
@@ -3842,7 +3978,14 @@ async function approveAndGenerate(root,folder,who,reviewedSnapshot){checkPbiFold
    if(n!=='pbi-state.json'&&n!=='DRAFT-PBI.md')files.push({path:folder+'/'+n,name:n,document:n.replace(/\.(md|json|docx)$/,'.md'),kind:n.split('.').pop(),bytes:b.length,sha256:await hashBytes(b)});}
   const after=await checkPbi(root,folder);
   if(after.computedStatus!=='Development-Ready'||after.issues.length)throw Error('The generated PBIs did not pass the readiness check: '+after.issues.map(i=>i.code+' '+i.ref).join('; '));
-  return {folder,documents:docs.map(d=>d.name),files,retired:retire,check:after};
+  // The development handoff, derived from the approved state and this passing check, in the same transaction.
+  const h=await handoffOutputs(root,folder,state,request,after,files.map(f=>({path:f.name,role:'refined-pbi',target:DOC_KEY[f.document]??null,bytes:f.bytes,sha256:f.sha256})));
+  for(const [n,v] of Object.entries(h.files)){
+   if(same(n,v))meter?.skipped();else{if(prior[n]!==null)await backup(n);written.push(n);await write(root,folder+'/'+n,v);}
+   const b=await bytesOf(root,folder+'/'+n);if(b===null||!equalBytes(b,enc.encode(v)))throw Error('Written file does not match: '+n);
+   if(redactSecrets(v).findings.length)throw Error('Generated '+n+' contains a value that looks like a credential.');
+   files.push({path:folder+'/'+n,name:n,document:null,kind:n.split('.').pop(),bytes:b.length,sha256:await hashBytes(b)});}
+  return {folder,documents:docs.map(d=>d.name),files,retired:retire,check:after,handoff:h.manifest};
  }catch(e){const failed=[];
   for(const n of written){try{if(prior[n]!==null)await write(root,folder+'/'+n,prior[n]);else if(await file(root,folder+'/'+n)!==null)await remove(root,folder+'/'+n);}catch{failed.push(n);}}
   throw Error('Generation failed; nothing was approved. '+(failed.length?'Could not restore: '+failed.join(', ')+'. ':'Earlier files were restored. ')+e.message);}
@@ -4101,6 +4244,6 @@ async function discoverSources(root,config){
 }
 async function readHead(root,path,limit=4096){const f=await file(root,path);if(f===null)return null;meter?.consumed(Math.min(f.size,limit));return await f.slice(0,limit).text();}
 const api={VERSION,planAnalysis,measure,writeIfChanged,gitIdentity,FILE_INDEX,BASE,CONFIG,MANIFEST,AGENT,AGENT_VSCODE,EDITORS,editorAgents,KNOWLEDGE,LEGACY_FILES,BASELINES,READINESS,WORKFLOW_GAP_CLASSES,comparison,cleanupComparison,comparisonGuide,baselineAgent,safePath,normalizeConfig,referenceOptions,TARGETS,targetKey,APPLICATIONS,ANALYSIS_MODES,setupFiles,bundle,render,newPbi,refinePbi,attachmentPath,questionProgress,recordWorkflowChoice,completeWorkflowChoice,workflowNextAction,questionGate,PHASES,targetOf,TARGET_AREAS,refinementPhase,finalArtifacts,questionBasis,answerQuestion,skipQuestion,recordAnswer,recordSkip,recordAnswers,handoff,branchMatrix,exportHandoff,readiness,checkPbi,reviewFingerprint,approvalBlockers,finalDocuments,finalDocumentNames,docx,approveAndGenerate,redactSecrets,scanInstructions,cleanAttachment,contentReview,readBytes:bytesOf,hashBytes,refreshEvidence,discoverSources,SOURCE_MAP,meaningful,hash,read,write,plan,apply,uninstallPlan,uninstall,listPbis,zip};
-Object.assign(api,{WORKING_SECTIONS,workingFiles,synchronizePbi,generateConditionalPbi,advanceWorkflow,recordWorkflowProgress,RULE_CLASSIFICATIONS,VERIFICATION_FACETS,recordRuleVerification,ruleVerificationWork,verifyRule,verifyAccessibleRules,resolveWorkspace,resolvePbiLocation});
+Object.assign(api,{HANDOFF,handoffDisposition,handoffOutputs,verifyHandoff,startDevelopment,developmentPackage,WORKING_SECTIONS,workingFiles,synchronizePbi,generateConditionalPbi,advanceWorkflow,recordWorkflowProgress,RULE_CLASSIFICATIONS,VERIFICATION_FACETS,recordRuleVerification,ruleVerificationWork,verifyRule,verifyAccessibleRules,resolveWorkspace,resolvePbiLocation});
 global.PBI=api;if(typeof module!=='undefined')module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

@@ -43,7 +43,11 @@ test('no instruction of the pre-split agent is lost: every sentence is in the ag
    // 5.5.0: business questions are asked one at a time, never grouped.
    'Done when only unresolved decisions were asked, together, and the answers are in pbi-state.json and DECISION-LOG.md.':'Done when only unresolved decisions were asked, one at a time, and the answers are in pbi-state.json and DECISION-LOG.md.',
    'After analysis, present all remaining questions together in one consolidated decision review, not one message per question.':'After analysis, ask the remaining questions one at a time, the earliest unanswered first, each on its own, never grouped.',
-   'Use vscode/askQuestions when available; otherwise present the consolidated review in chat.':'Use vscode/askQuestions with one question per call when available; otherwise ask the same single question in chat.'};
+   'Use vscode/askQuestions when available; otherwise present the consolidated review in chat.':'Use vscode/askQuestions with one question per call when available; otherwise ask the same single question in chat.',
+   // 5.7.0: Start Development and Implement PBI hand an approved PBI to the Akzo Master SDD agent instead of starting a new intake.
+   '## Commands Start PBI (also Create PBI, New PBI, Start Development, Implement PBI, Create User Story, Refine New Requirement): all start the same intake below; Start Development and Implement PBI prepare the PBI and never change application code.':
+   '## Commands Start PBI (also Create PBI, New PBI, Create User Story, Refine New Requirement): all start the same intake below. Start Development <n> and Implement PBI <n> hand an approved PBI to the Akzo Master SDD agent (stage-approval.md), never start a new intake and never change application code.',
+   '- Approval and generation (status, readiness, the final approval): readiness-and-approval.md.':'- Approval and generation (status, readiness, the final approval, Start Development): readiness-and-approval.md.'};
   for(const [was,now] of Object.entries(REWORDED))assert.ok(pool.includes(now),ide+': reworded sentence present: '+now);
   const old=sentences(renamedDocs(BASELINE.agents[ide]).replace('# Akzo SDD PBI Builder v5.3.0','# Akzo SDD PBI Builder v'+P.VERSION)),missing=old.filter(s=>!pool.includes(s)&&!REWORDED[s]&&!FIXED_TARGET_TEXT.has(s));
   assert.ok(old.length>380,ide+' baseline parsed into sentences');
@@ -70,7 +74,9 @@ test('no instruction of the pre-split guides is lost: each sentence stays in its
   .replace('rerun readiness, and report refinement complete.','rerun readiness, and resolve the open blockers one at a time as the agent\'s "Never stop at the draft" says.')
   .replace('Present unresolved dependencies as owner actions in the generated artifacts, not as a question blocking refinement.','Record unresolved dependencies as owner actions in the draft; ask about each one once, never as a reason to stop.')
   .replace('- Finish investigating first, then present every remaining decision together in one consolidated decision review, each question in the format below.','- Finish investigating first, then ask the remaining decisions one at a time, the earliest unanswered first, each question in the format below.')
-  .replace('Show every independent unresolved decision together after investigation;','Ask the unresolved decisions one at a time after investigation;');
+  .replace('Show every independent unresolved decision together after investigation;','Ask the unresolved decisions one at a time after investigation;')
+  // 5.7.0: Approve & Generate writes the developer handoff in Chat too; the user is no longer sent to the form for it.
+  .replace("BRANCH-COVERAGE-MATRIX.md and business-rules.json are produced by the form's Export developer handoff button from pbi-state.json; ask the user to run it after the state is updated.",'Approve & Generate writes BRANCH-COVERAGE-MATRIX.md and business-rules.json, with HANDOFF-MANIFEST.json, from the approved pbi-state.json, in Chat and in the form; never ask the user to open the form for them.');
  let moved=0;
  for(const [p,text] of Object.entries(BASELINE.guides)){
   assert.ok(f[p],p+' still ships');const own=norm(f[p]);

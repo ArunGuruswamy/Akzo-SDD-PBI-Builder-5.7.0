@@ -288,7 +288,21 @@ action('copyBaseline',()=>copyComparison('baseline'));
 action('copyCurrent',()=>copyComparison('current'));
 action('cleanupComparison',async()=>{needRoot();const r=await PBI.cleanupComparison(root,await activeConfig());msg((r.removed.length?'Removed: '+r.removed.join(', '):'No unchanged comparison agents found.')+(r.kept.length?'\nKept because they were edited: '+r.kept.join(', '):'')+'\nTrial folders and results are kept.');});
 function selectedPbi(){const folder=$('existingPbi').value||$('manualPbi').value.trim();if(!folder)throw Error('Find and select an existing PBI first.');return folder;}
-action('exportHandoff',async()=>{needRoot();const r=await PBI.exportHandoff(root,selectedPbi()),h=r.handoff;msg('Wrote '+r.files.join(' and ')+'\nReadiness: '+r.report.computedStatus+' · rules: '+h.rules.length+' · branches: '+h.rules.reduce((n,x)=>n+x.branches.length,0)+' · open gaps: '+h.gaps.length+'\nGive business-rules.json to the development agent. Earlier exports were copied to history/.');});
+action('exportHandoff',async()=>{needRoot();const r=await PBI.exportHandoff(root,selectedPbi()),h=r.handoff;msg('Wrote '+r.files.join(' and ')+'\nReadiness: '+r.report.computedStatus+' · rules: '+h.rules.length+' · branches: '+h.rules.reduce((n,x)=>n+x.branches.length,0)+' · open gaps: '+h.gaps.length+' · disposition: '+r.disposition+'\n'+(r.disposition==='DEVELOPMENT_READY'?'Use Start Development to hand the approved PBI to the Akzo Master SDD agent.':'Not approved for development: share it as a working draft only.')+' Earlier exports were copied to history/.');});
+// Start Development: the verified handoff and, per implementation target, the command that queues its Refined PBI for the Akzo Master
+// SDD agent. A browser cannot start another agent: the commands are copied, and the SDD agent still asks for its own selection and approval.
+async function startDevelopment(folder,out){needRoot();const repo=$('displayPath').value.trim(),r=await PBI.startDevelopment(root,folder,repo),m=r.manifest;
+ const text=['Start Development · '+(m.pbi.number?'PBI '+m.pbi.number+' · ':'')+(m.pbi.title||folder),
+  'Handoff verified: '+r.disposition+'. '+m.files.length+' files match HANDOFF-MANIFEST.json and the approval by '+m.approval.by+', '+m.approval.at+'.'+(r.adopted?' The handoff was created now from that approval; nothing was approved again.':''),'',
+  '1. In PowerShell'+(repo?'':' opened at the repository root')+', queue each Refined PBI for the Akzo Master SDD agent:',
+  ...r.targets.flatMap(t=>['',t.area+(t.repository?' ('+t.repository+')':'')+': '+t.document,t.command]),'',
+  ...(r.references.length?['Read-only references (never changed): '+r.references.map(x=>x.area||x.key).join(', '),'']:[]),
+  '2. Open the target repository, select the Akzo Master SDD agent in Copilot Chat and type: start',
+  'The commands only queue the PBI; they start nothing. The SDD agent asks you to confirm the PBI and approve the implementation.'].join('\n');
+ if(out){out.textContent=text;out.classList.remove('hidden');}
+ let copied=false;try{await navigator.clipboard.writeText(r.targets.map(t=>t.command).join('\n'));copied=true;}catch{}
+ msg(text+'\n\n'+(copied?'The commands are on the clipboard. Copying them does not start the SDD agent.':'Copy the commands above; the clipboard is not available here.'));}
+action('startDevelopmentPbi',()=>startDevelopment(selectedPbi()));
 action('checkReadiness',async()=>{needRoot();const {report:r,next}=await PBI.advanceWorkflow(root,selectedPbi());msg('Readiness for '+r.pbi+'\nComputed status: '+r.computedStatus+(r.claimedStatus?' (claimed: '+r.claimedStatus+')':'')+'\nFinal PBIs allowed: '+(r.finalAllowed?'yes':'no')+'\n\n'+(r.issues.map(x=>'['+x.cap+'] '+x.code+' '+x.ref+': '+x.message).join('\n')||'No issues found.')+(PBI.READINESS.statuses.indexOf(r.computedStatus)>=3?'\n\nApproval basis (the final approval is recorded by Review & approve; give the agent a block only for an external PO/BA or technical approval it records):\n'+Object.entries(r.review).map(([k,v])=>k+' (fingerprint '+v.fingerprint+'): '+JSON.stringify(v.basis)).join('\n'):'')+'\n\nNext: '+next.next+(next.decision?'\n'+next.decision.options.map(o=>o.key+'. '+o.text+(o.recommended?' (recommended)':'')).join('\n'):'')+'\n\nThis checks completeness and consistency only, not business correctness or who approved.',!r.finalAllowed);});
 action('discoverSources',async()=>{needRoot();const {result:m,metrics}=await PBI.measure(()=>PBI.discoverSources(root,needConfig()));showRun('Discover sources',metrics);const ch=m.changes;lastAccess=Object.fromEntries(m.sources.map(s=>[s.key,s.status]));
  msg([(m.written?'Wrote ':'Checked (no changes written) ')+PBI.SOURCE_MAP.replace('source-map.json','SOURCE-MAP.md')+' ('+m.filesScanned+' files scanned'+(m.truncated?', stopped early':'')+').','Solutions: '+m.solutions.length+' · projects: '+m.projects.length,...m.sources.map(s=>s.key+': '+s.status+(s.checkedFile?' (read '+s.checkedFile+')':s.reason?' ('+s.reason+')':'')),
@@ -368,10 +382,9 @@ function showDone(r,req){done=r;const list=$('doneList');
   for(const [kind,label] of [['docx','Download DOCX'],['md','Download MD'],['json','Download JSON'],['preview','Preview']]){const b=document.createElement('button');b.className='secondary';b.textContent=label;
    b.onclick=async()=>{try{if(kind==='preview'){const p=$('donePreview');p.textContent=new TextDecoder().decode(await generated(doc));p.classList.remove('hidden');return;}const n=base+'.'+kind;await saveFile(new Blob([await generated(n)],{type:MIME[kind]}),n);}catch(e){msg(e.message,true);}};row.append(b);}
   return row;}));
- $('donePath').textContent='Saved in '+r.folder+' in the selected repository. Browsers cannot open File Explorer; open this folder from your editor.';$('donePreview').classList.add('hidden');
- const d=$('doneDialog');if(d.showModal&&!d.open)d.showModal();msg('Refined PBI generated successfully: '+r.documents.join(', ')+' (with DOCX and JSON). Every file was verified. COMPLETE.');}
-action('downloadAll',async()=>{if(!done)throw Error('Generate the final PBIs first.');const files={};
- for(const x of done.files)files[x.name]=await generated(x.name);
- for(const n of ['REQUEST.md','pbi.json','pbi-state.json','DRAFT-PBI.md','DECISION-LOG.md','EVIDENCE.md','VALIDATION-MATRIX.md','OPEN-QUESTIONS.md']){const b=await PBI.readBytes(root,done.folder+'/'+n);if(b!==null)files['supporting/'+n]=PBI.cleanAttachment(n,b).bytes;}
- await saveFile(PBI.zip(files),done.folder.split('/').pop()+'-final-pbis.zip');});
+ $('donePath').textContent='Saved in '+r.folder+' in the selected repository, with the development handoff (HANDOFF-MANIFEST.json). Browsers cannot open File Explorer; open this folder from your editor.';$('donePreview').classList.add('hidden');$('devHandoff').classList.add('hidden');
+ const d=$('doneDialog');if(d.showModal&&!d.open)d.showModal();msg('Refined PBI generated successfully: '+r.documents.join(', ')+' (with DOCX and JSON). Every file was verified. COMPLETE. Development handoff: business-rules.json, BRANCH-COVERAGE-MATRIX.md and HANDOFF-MANIFEST.json ('+r.handoff.disposition+').');}
+action('startDevelopment',()=>{if(!done)throw Error('Generate the final PBIs first.');return startDevelopment(done.folder,$('devHandoff'));});
+action('downloadAll',async()=>{if(!done)throw Error('Generate the final PBIs first.');
+ await saveFile(PBI.zip(await PBI.developmentPackage(root,done.folder,done.files)),done.folder.split('/').pop()+'-final-pbis.zip');});
 $('doneClose').onclick=()=>{const d=$('doneDialog');if(d.close)d.close();};

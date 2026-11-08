@@ -1,3 +1,20 @@
+# Migrating to Akzo SDD PBI Builder 5.7.0
+
+## From 5.6.2
+- Upgrade normally and allow reviewed updates: the agent, the approval stage module, two guides, the form and the repository
+  checker (`playbook/pbi-builder/tools`) change. Settings, paths, editors, PBIs, decisions, answers and approvals are kept.
+- Approved PBIs stay approved. They have no HANDOFF-MANIFEST.json yet; the first Start Development creates it from the
+  existing approval without changing pbi-state.json. Approving again is not required.
+- `Start Development` and `Implement PBI` in Chat now hand an approved PBI to the Akzo Master SDD agent instead of starting a
+  new intake. Use `Start PBI`, `Create PBI` or `New PBI` for a new requirement.
+- Earlier business-rules.json and BRANCH-COVERAGE-MATRIX.md files are kept in history/ when Approve & Generate replaces them.
+- business-rules.json is schemaVersion 2: every schemaVersion 1 field is unchanged, so a reader of version 1 keeps working.
+- Refined PBI JSON written in Chat now has the same fields and layout as the form's (it was written by ConvertTo-Json before).
+
+### Rollback from 5.7.0 to 5.6.2
+Run `Install-PBIBuilder.cmd -RepoPath "<repository>" -AllowUpdates` from `releases/Akzo-SDD-PBI-Builder-5.6.2/`.
+HANDOFF-MANIFEST.json files stay in the PBI folders; 5.6.2 ignores them, and its readiness check is unaffected.
+
 # Migrating to Akzo SDD PBI Builder 5.6.2
 
 ## From 5.6.1
